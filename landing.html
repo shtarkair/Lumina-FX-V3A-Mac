@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUMINA FX — Handle Light Like Sound</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Jura:wght@300;400;500&family=Crimson+Pro:ital,wght@1,300&family=DM+Mono:wght@300;400&family=Poiret+One&display=swap');
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --void: #060810;
+    --deep: #0c1226;
+    --navy: #101832;
+    --beam-blue: #3c78ff;
+    --cyan: #32dcff;
+    --amber: #ffbe46;
+    --coral: #ff5a50;
+    --steel: #465575;
+    --label: #647da0;
+    --faint: #161e34;
+    --text-dim: #3a4a6a;
+    --text-med: #5a7296;
+    --text-bright: #d0ddf8;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--void);
+    color: var(--text-med);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── CANVAS BACKGROUND ── */
+  .bg-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .bg-canvas canvas { width: 100%; height: 100%; }
+
+  /* ── LAYOUT ── */
+  .page { position: relative; z-index: 1; }
+
+  .section {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 40px;
+    position: relative;
+  }
+
+  .container {
+    max-width: 1100px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+  }
+
+  .hero-reg {
+    position: absolute;
+    top: 30px;
+    left: 40px;
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+  }
+  .hero-reg-r {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    text-align: right;
+  }
+
+  .hero-title {
+    font-family: 'Poiret One', sans-serif;
+    font-size: clamp(60px, 10vw, 140px);
+    font-weight: 400;
+    letter-spacing: 0.15em;
+    color: var(--text-bright);
+    line-height: 1;
+    margin-bottom: 24px;
+    text-shadow: 0 0 60px rgba(60, 120, 255, 0.15);
+  }
+
+  .hero-rule {
+    width: 260px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--steel), transparent);
+    margin: 0 auto 28px;
+  }
+
+  .hero-tagline {
+    font-family: 'Crimson Pro', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(18px, 2.5vw, 28px);
+    color: var(--label);
+    letter-spacing: 0.05em;
+    margin-bottom: 40px;
+  }
+
+  .hero-meta {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .hero-scroll {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 8px;
+    letter-spacing: 3px;
+    animation: pulse-down 2s ease-in-out infinite;
+  }
+  .hero-scroll .arrow {
+    width: 1px; height: 30px;
+    background: linear-gradient(to bottom, var(--steel), transparent);
+  }
+  @keyframes pulse-down {
+    0%, 100% { opacity: 0.4; transform: translateX(-50%) translateY(0); }
+    50% { opacity: 0.8; transform: translateX(-50%) translateY(5px); }
+  }
+
+  /* ── CONCEPT SECTION ── */
+  .concept {
+    padding: 120px 40px;
+  }
+  .concept-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: start;
+  }
+  .concept-label {
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 30px;
+  }
+  .concept-heading {
+    font-family: 'Jura', sans-serif;
+    font-weight: 300;
+    font-size: 36px;
+    color: var(--text-bright);
+    line-height: 1.3;
+    margin-bottom: 24px;
+  }
+  .concept-text {
+    font-size: 14px;
+    line-height: 1.9;
+    color: var(--text-med);
+    max-width: 500px;
+  }
+  .concept-text + .concept-text { margin-top: 16px; }
+
+  .concept-specs {
+    padding: 40px 0;
+    border-left: 1px solid var(--faint);
+    padding-left: 40px;
+  }
+  .spec-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--faint);
+    font-size: 11px;
+  }
+  .spec-label { color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; }
+  .spec-value { color: var(--label); font-family: 'DM Mono', monospace; }
+
+  /* ── FEATURES ── */
+  .features {
+    padding: 120px 40px;
+  }
+  .features-header {
+    text-align: center;
+    margin-bottom: 80px;
+  }
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px;
+  }
+  .feature-card {
+    padding: 40px 30px;
+    border: 1px solid var(--faint);
+    border-radius: 2px;
+    transition: border-color 0.4s;
+    position: relative;
+  }
+  .feature-card:hover { border-color: var(--steel); }
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--beam-blue), transparent);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  .feature-card:hover::before { opacity: 0.5; }
+
+  .feature-icon {
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--beam-blue);
+    margin-bottom: 20px;
+    font-family: 'DM Mono', monospace;
+  }
+  .feature-title {
+    font-family: 'Jura', sans-serif;
+    font-weight: 400;
+    font-size: 18px;
+    color: var(--text-bright);
+    margin-bottom: 14px;
+  }
+  .feature-desc {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text-med);
+  }
+
+  /* ── WAVEFORM VISUAL (the "sound" section) ── */
+  .waveform-section {
+    padding: 100px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .waveform-section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(180deg, var(--void), rgba(12, 18, 38, 0.5), var(--void));
+    pointer-events: none;
+  }
+  .waveform-container {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .waveform-canvas {
+    width: 100%;
+    height: 240px;
+    margin: 40px 0;
+  }
+  .waveform-label {
+    text-align: center;
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .waveform-quote {
+    text-align: center;
+    font-family: 'Crimson Pro', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 24px;
+    color: var(--label);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* ── PROTOCOL SECTION ── */
+  .protocol {
+    padding: 120px 40px;
+  }
+  .proto-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 30px;
+    text-align: center;
+  }
+  .proto-item {
+    padding: 40px 20px;
+    border: 1px solid var(--faint);
+  }
+  .proto-value {
+    font-family: 'Poiret One', sans-serif;
+    font-size: 48px;
+    color: var(--text-bright);
+    line-height: 1;
+    margin-bottom: 12px;
+  }
+  .proto-unit {
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  /* ── CTA ── */
+  .cta-section {
+    padding: 120px 40px;
+    text-align: center;
+  }
+  .cta-heading {
+    font-family: 'Jura', sans-serif;
+    font-weight: 300;
+    font-size: 32px;
+    color: var(--text-bright);
+    margin-bottom: 16px;
+  }
+  .cta-sub {
+    font-size: 14px;
+    color: var(--text-med);
+    margin-bottom: 40px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .cta-btn {
+    display: inline-block;
+    padding: 16px 48px;
+    border: 1px solid var(--beam-blue);
+    color: var(--text-bright);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .cta-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; right: 100%; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(60, 120, 255, 0.1), transparent);
+    transition: all 0.5s;
+  }
+  .cta-btn:hover::before { left: 0; right: 0; }
+  .cta-btn:hover { border-color: var(--cyan); box-shadow: 0 0 30px rgba(50, 220, 255, 0.1); }
+
+  /* ── FOOTER ── */
+  footer {
+    padding: 60px 40px 40px;
+    text-align: center;
+    border-top: 1px solid var(--faint);
+  }
+  .footer-brand {
+    font-family: 'Poiret One', sans-serif;
+    font-size: 20px;
+    letter-spacing: 0.15em;
+    color: var(--steel);
+    margin-bottom: 12px;
+  }
+  .footer-copy {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    .concept-grid { grid-template-columns: 1fr; gap: 40px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .proto-grid { grid-template-columns: repeat(2, 1fr); }
+    .concept-specs { border-left: none; padding-left: 0; border-top: 1px solid var(--faint); padding-top: 40px; }
+  }
+  @media (max-width: 600px) {
+    .section { padding: 60px 20px; }
+    .concept, .features, .protocol, .cta-section { padding: 80px 20px; }
+    .proto-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Background Canvas ── -->
+<div class="bg-canvas"><canvas id="bgCanvas"></canvas></div>
+
+<div class="page">
+
+  <!-- ── HERO ── -->
+  <section class="hero section">
+    <div class="hero-reg">FIELD STUDY 001<br>REF: LFX-V2A-2026</div>
+    <div class="hero-reg-r">CLASSIFICATION: TEMPORAL<br>MEDIUM: PHOTON / DMX512</div>
+
+    <div>
+      <h1 class="hero-title">LUMINA FX</h1>
+      <div class="hero-rule"></div>
+      <p class="hero-tagline">handle light like sound</p>
+      <p class="hero-meta">EFFECT ENGINE — V2A — 2026</p>
+    </div>
+
+    <div class="hero-scroll">
+      <span>SCROLL</span>
+      <div class="arrow"></div>
+    </div>
+  </section>
+
+  <!-- ── CONCEPT ── -->
+  <section class="concept">
+    <div class="container">
+      <div class="concept-grid">
+        <div>
+          <div class="concept-label">001 — THE CONCEPT</div>
+          <h2 class="concept-heading">Light is temporal.<br>Treat it that way.</h2>
+          <p class="concept-text">Every lighting cue is a waveform — an intensity envelope unfolding across time. LUMINA FX is the first effect engine that makes this intuitive: draw parameter curves on a timeline the same way an audio engineer shapes sound.</p>
+          <p class="concept-text">No programming matrices. No spreadsheet-style cue lists. Just direct, visual control over every dimension of light — dimmer, color, position, gobo — all mapped to a shared temporal axis with beat-grid precision.</p>
+        </div>
+        <div class="concept-specs">
+          <div class="spec-row"><span class="spec-label">Protocol</span><span class="spec-value">Art-Net IV / sACN</span></div>
+          <div class="spec-row"><span class="spec-label">Universes</span><span class="spec-value">64 × 512 ch</span></div>
+          <div class="spec-row"><span class="spec-label">Resolution</span><span class="spec-value">16-bit</span></div>
+          <div class="spec-row"><span class="spec-label">Render</span><span class="spec-value">60 fps</span></div>
+          <div class="spec-row"><span class="spec-label">Fixture Types</span><span class="spec-value">Moving Head / Wash / Spot / LED</span></div>
+          <div class="spec-row"><span class="spec-label">Easing</span><span class="spec-value">Linear / Sine / Expo / Custom</span></div>
+          <div class="spec-row"><span class="spec-label">Sync</span><span class="spec-value">MIDI / BPM / Manual</span></div>
+          <div class="spec-row"><span class="spec-label">Output</span><span class="spec-value">USB DMX / Network</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── WAVEFORM VISUAL ── -->
+  <section class="waveform-section">
+    <div class="waveform-container">
+      <div class="waveform-label">DMX TIMELINE — TEMPORAL MAPPING</div>
+      <canvas class="waveform-canvas" id="waveformCanvas"></canvas>
+      <p class="waveform-quote">The first effect engine that treats lighting parameters as waveforms on a shared timeline.</p>
+    </div>
+  </section>
+
+  <!-- ── FEATURES ── -->
+  <section class="features">
+    <div class="container">
+      <div class="features-header">
+        <div class="concept-label">002 — CAPABILITIES</div>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">TIMELINE</div>
+          <h3 class="feature-title">Waveform Editor</h3>
+          <p class="feature-desc">Draw parameter curves directly on a beat-synced timeline. Every lighting dimension — dimmer, pan, tilt, color, gobo — lives on its own lane with visual cue blocks you can drag, resize, and ease.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">FIXTURE</div>
+          <h3 class="feature-title">Multi-Fixture Control</h3>
+          <p class="feature-desc">Group fixtures by stage position. Apply effects across groups or individual heads. Full CMY, color wheel, and 16-bit pan/tilt support with real-time preview.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">PROTOCOL</div>
+          <h3 class="feature-title">Art-Net IV Native</h3>
+          <p class="feature-desc">64 universes of Art-Net IV output with full ArtPollReply — LUMINA FX announces itself on your lighting network like any professional node. sACN support included.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">VISUALIZER</div>
+          <h3 class="feature-title">Live Preview</h3>
+          <p class="feature-desc">Built-in stage visualizer shows fixture output in real-time. Color-mixed circles for every fixture, detailed moving head view for selected units — all in a separate window for zero performance impact.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">ENGINE</div>
+          <h3 class="feature-title">Effect Patterns</h3>
+          <p class="feature-desc">Sine, chase, rainbow, strobe — built-in effect generators with per-fixture phase offset, speed control, and wave shaping. Stack effects or draw them manually.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">SYSTEM</div>
+          <h3 class="feature-title">Lightweight Core</h3>
+          <p class="feature-desc">Runs on a single Node.js process. No installers, no dongles, no cloud dependency. Open the app, connect your DMX interface, and go. Works on macOS and Windows.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PROTOCOL NUMBERS ── -->
+  <section class="protocol">
+    <div class="container">
+      <div class="concept-label" style="text-align:center;margin-bottom:60px;">003 — SPECIFICATIONS</div>
+      <div class="proto-grid">
+        <div class="proto-item">
+          <div class="proto-value">64</div>
+          <div class="proto-unit">UNIVERSES</div>
+        </div>
+        <div class="proto-item">
+          <div class="proto-value">32K</div>
+          <div class="proto-unit">CHANNELS</div>
+        </div>
+        <div class="proto-item">
+          <div class="proto-value">60</div>
+          <div class="proto-unit">FPS OUTPUT</div>
+        </div>
+        <div class="proto-item">
+          <div class="proto-value">16</div>
+          <div class="proto-unit">BIT RESOLUTION</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section class="cta-section">
+    <div class="container">
+      <h2 class="cta-heading">Ready to handle light like sound?</h2>
+      <p class="cta-sub">Download LUMINA FX and start designing temporal light compositions today.</p>
+      <a href="#" class="cta-btn">Download V2A</a>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-brand">LUMINA FX</div>
+    <div class="footer-copy">SPECTRAL CARTOGRAPHY — FIELD STUDY 001 — 2026</div>
+  </footer>
+
+</div>
+
+<script>
+// ── Background: Animated concentric rings + beam lines ──
+(function() {
+  const c = document.getElementById('bgCanvas');
+  const ctx = c.getContext('2d');
+  let w, h, cx, cy;
+
+  function resize() {
+    w = c.width = window.innerWidth;
+    h = c.height = window.innerHeight;
+    cx = w / 2;
+    cy = h * 0.45;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  let frame = 0;
+  function draw() {
+    frame++;
+    ctx.fillStyle = 'rgba(6, 8, 16, 0.15)';
+    ctx.fillRect(0, 0, w, h);
+
+    const scrollY = window.scrollY;
+    const parallax = scrollY * 0.3;
+
+    // Concentric rings
+    const numRings = 20;
+    for (let i = 1; i <= numRings; i++) {
+      const r = i * Math.min(w, h) * 0.04;
+      const pulse = Math.sin(frame * 0.008 + i * 0.3) * 0.3 + 0.7;
+      const alpha = Math.max(0.02, (0.08 - i * 0.003) * pulse);
+      ctx.strokeStyle = `rgba(40, 65, 120, ${alpha})`;
+      ctx.lineWidth = i % 5 === 0 ? 1.5 : 0.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy - parallax, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Radial lines
+    for (let a = 0; a < 360; a += 15) {
+      const rad = a * Math.PI / 180;
+      const len = Math.min(w, h) * 0.8;
+      const alpha = a % 45 === 0 ? 0.06 : 0.025;
+      ctx.strokeStyle = `rgba(35, 55, 90, ${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - parallax);
+      ctx.lineTo(cx + Math.cos(rad) * len, cy - parallax + Math.sin(rad) * len);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Waveform Canvas: Animated DMX timeline ──
+(function() {
+  const c = document.getElementById('waveformCanvas');
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  function resize() {
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const colors = [
+    [60, 120, 255],
+    [50, 220, 255],
+    [255, 190, 70],
+    [255, 90, 80]
+  ];
+  const cuePatterns = [
+    [[0.02,0.10,0.9],[0.18,0.06,0.5],[0.30,0.18,1.0],[0.55,0.12,0.7],[0.75,0.08,0.85],[0.88,0.06,0.4]],
+    [[0.05,0.08,0.6],[0.20,0.15,0.8],[0.42,0.10,0.45],[0.58,0.20,1.0],[0.85,0.10,0.7]],
+    [[0.08,0.12,1.0],[0.28,0.06,0.3],[0.38,0.08,0.7],[0.50,0.15,0.5],[0.72,0.18,0.9]],
+    [[0.0,0.05,0.4],[0.12,0.10,0.85],[0.32,0.12,0.6],[0.48,0.06,0.95],[0.62,0.22,0.75],[0.90,0.08,1.0]]
+  ];
+
+  let frame = 0;
+  function draw() {
+    frame++;
+    const rect = c.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const margin = 40;
+    const laneH = (h - 20) / 4;
+    const timeOffset = frame * 0.0008;
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(22, 30, 52, 0.8)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 20; i++) {
+      const x = margin + (i / 20) * (w - margin * 2);
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+
+    for (let ch = 0; ch < 4; ch++) {
+      const baseY = 8 + ch * laneH;
+      const lH = laneH - 8;
+      const col = colors[ch];
+      const cues = cuePatterns[ch];
+
+      // Zero line
+      ctx.strokeStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.1)`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(margin, baseY + lH); ctx.lineTo(w - margin, baseY + lH); ctx.stroke();
+
+      // Build path
+      ctx.beginPath();
+      let first = true;
+      for (let px = margin; px <= w - margin; px++) {
+        let t = ((px - margin) / (w - margin * 2) + timeOffset) % 1.0;
+        let val = 0;
+        for (const [cs, cd, cv] of cues) {
+          if (t >= cs && t <= cs + cd) {
+            const lt = (t - cs) / cd;
+            val = Math.max(val, cv * Math.sin(lt * Math.PI));
+          }
+        }
+        const y = baseY + (1 - val) * lH;
+        if (first) { ctx.moveTo(px, y); first = false; }
+        else ctx.lineTo(px, y);
+      }
+
+      // Fill
+      ctx.lineTo(w - margin, baseY + lH);
+      ctx.lineTo(margin, baseY + lH);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.08)`;
+      ctx.fill();
+
+      // Stroke
+      ctx.beginPath();
+      first = true;
+      for (let px = margin; px <= w - margin; px++) {
+        let t = ((px - margin) / (w - margin * 2) + timeOffset) % 1.0;
+        let val = 0;
+        for (const [cs, cd, cv] of cues) {
+          if (t >= cs && t <= cs + cd) {
+            const lt = (t - cs) / cd;
+            val = Math.max(val, cv * Math.sin(lt * Math.PI));
+          }
+        }
+        const y = baseY + (1 - val) * lH;
+        if (first) { ctx.moveTo(px, y); first = false; }
+        else ctx.lineTo(px, y);
+      }
+      ctx.strokeStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.5)`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Channel label
+      ctx.fillStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.3)`;
+      ctx.font = '9px "DM Mono", monospace';
+      ctx.fillText(`CH${ch + 1}`, 8, baseY + lH / 2 + 3);
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Intersection Observer for fade-in ──
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.style.opacity = '1';
+      e.target.style.transform = 'translateY(0)';
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.feature-card, .proto-item, .concept-grid > div').forEach(el => {
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(20px)';
+  el.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+  observer.observe(el);
+});
+</script>
+
+</body>
+</html>

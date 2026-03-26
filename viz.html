@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUMINA FX — Visualizer</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:#050508;color:#ccd;font-family:'Courier New',monospace;overflow:hidden;height:100vh;display:flex;flex-direction:column;}
+  #header{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;background:rgba(8,10,16,0.95);border-bottom:1px solid #141824;flex-shrink:0;z-index:10;}
+  #header h1{font-size:11px;letter-spacing:4px;color:#3a6adf;font-weight:bold;}
+  #status{display:flex;align-items:center;gap:8px;font-size:10px;}
+  #dot{width:7px;height:7px;border-radius:50%;background:#333;transition:background 0.3s;}
+  #dot.live{background:#44ff88;box-shadow:0 0 6px #44ff88;}
+  #dot.connecting{background:#ffaa44;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+  #main{display:flex;flex:1;overflow:hidden;}
+  #stage-wrap{flex:1;position:relative;overflow:hidden;background:#050508;}
+  canvas#stage{display:block;width:100%;height:100%;}
+  #detail{width:300px;background:#080a10;border-left:1px solid #141824;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+  #detail-header{padding:8px 12px;border-bottom:1px solid #141824;font-size:9px;letter-spacing:2px;color:#2a3550;display:flex;justify-content:space-between;align-items:center;}
+  #detail-body{flex:1;overflow-y:auto;padding:0;}
+  #no-select{display:flex;flex:1;align-items:center;justify-content:center;color:#1a2030;font-size:10px;letter-spacing:2px;text-align:center;padding:20px;min-height:200px;}
+  #detail-content{display:none;flex-direction:column;}
+  .det-top{padding:10px 12px;border-bottom:1px solid #0e1220;display:flex;justify-content:space-between;align-items:flex-start;}
+  .det-name{font-size:14px;font-weight:bold;color:#c8d4f0;letter-spacing:1px;}
+  .det-type{font-size:8px;color:#2a3550;letter-spacing:1px;margin-top:2px;}
+  .det-dim{font-size:28px;font-weight:bold;color:#3a6adf;letter-spacing:1px;line-height:1;}
+  .det-dim-label{font-size:7px;color:#2a3550;letter-spacing:1px;text-align:right;}
+  .mh-wrap{position:relative;width:100%;height:260px;background:#030406;border-bottom:1px solid #0e1220;overflow:hidden;flex-shrink:0;}
+  .mh-wrap canvas{display:block;width:100%;height:260px;}
+  .color-strip{height:4px;background:#0a0c12;}
+  .params-section{padding:8px 10px;}
+  .params-section-title{font-size:7px;color:#2a3550;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #0e1220;}
+  .params-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;}
+  .param-box{background:#080a12;border:1px solid #10141e;border-radius:2px;padding:4px 5px;text-align:center;}
+  .param-box.active{border-color:#1a2540;}
+  .param-label{font-size:6px;color:#2a3550;letter-spacing:1px;text-transform:uppercase;}
+  .param-val{font-size:12px;font-weight:bold;color:#3a5a90;margin-top:1px;}
+  .param-val.active{color:#6a9aef;}
+  .param-unit{font-size:6px;color:#1a2540;}
+  .param-bar{height:2px;background:#0a0e16;border-radius:1px;margin-top:3px;overflow:hidden;}
+  .param-bar-fill{height:100%;border-radius:1px;transition:width 0.1s;}
+  #footer{padding:4px 16px;background:#050508;border-top:1px solid #0e1220;font-size:8px;color:#1a2535;display:flex;justify-content:space-between;flex-shrink:0;}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>LUMINA FX &middot; VISUALIZER</h1>
+  <div id="status"><div id="dot" class="connecting"></div><span id="status-text">connecting…</span></div>
+</div>
+
+<div id="main">
+  <div id="stage-wrap"><canvas id="stage"></canvas></div>
+  <div id="detail">
+    <div id="detail-header"><span>FIXTURE INSPECTOR</span><span id="d-fps">—</span></div>
+    <div id="detail-body">
+      <div id="no-select">CLICK A FIXTURE<br>TO INSPECT</div>
+      <div id="detail-content">
+        <div class="det-top">
+          <div><div class="det-name" id="d-name">—</div><div class="det-type" id="d-type">—</div></div>
+          <div style="text-align:right"><div class="det-dim" id="d-dimmer">—</div><div class="det-dim-label">DIMMER</div></div>
+        </div>
+        <div class="color-strip" id="d-color"></div>
+        <div class="mh-wrap"><canvas id="c-mh"></canvas></div>
+        <div id="d-param-sections"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="footer">
+  <span id="f-fixtures">0 fixtures</span>
+  <span>localhost:3457/viz</span>
+  <span id="f-fps">— fps</span>
+</div>
+
+<script>
+// ─── State ───
+let fixtures = [], live = {}, selectedId = null, ws = null;
+let fpsCounter = 0, lastFpsTime = performance.now();
+const GROUP_ORDER = ['BACK','TOP BACK','TOP','FLOOR','FRONT 2','FRONT 1','SIDE','CUSTOM'];
+const GROUP_Y = {'BACK':0.08,'TOP BACK':0.22,'TOP':0.36,'FLOOR':0.52,'FRONT 2':0.66,'FRONT 1':0.80,'SIDE':0.52,'CUSTOM':0.92};
+
+// ─── Embedded param definitions (no longer depends on server relay) ───
+const PARAM_GROUPS = [
+  { group:"INTENSITY", color:"#cccccc", params:[
+    { id:"dimmer", label:"Dimmer", unit:"%", min:0, max:100, color:"#cccccc" },
+    { id:"strobe", label:"Strobe", unit:"Hz", min:0, max:25, color:"#ffee88" },
+  ]},
+  { group:"POSITION", color:"#44aaff", params:[
+    { id:"pan", label:"Pan", unit:"\u00B0", min:0, max:540, color:"#44aaff" },
+    { id:"tilt", label:"Tilt", unit:"\u00B0", min:0, max:270, color:"#66ccff" },
+  ]},
+  { group:"COLOR", color:"#ff66aa", params:[
+    { id:"cyan", label:"C", unit:"%", min:0, max:100, color:"#44ffff" },
+    { id:"magenta", label:"M", unit:"%", min:0, max:100, color:"#ff44ff" },
+    { id:"yellow", label:"Y", unit:"%", min:0, max:100, color:"#ffff44" },
+    { id:"white", label:"W", unit:"%", min:0, max:100, color:"#eeeedd" },
+    { id:"cto", label:"CTO", unit:"%", min:0, max:100, color:"#ffbb66" },
+    { id:"colorwheel", label:"Color", unit:"slot", min:0, max:16, color:"#ff88cc" },
+  ]},
+  { group:"BEAM", color:"#ffaa44", params:[
+    { id:"zoom", label:"Zoom", unit:"\u00B0", min:5, max:60, color:"#ffaa44" },
+    { id:"iris", label:"Iris", unit:"%", min:0, max:100, color:"#ffbb55" },
+    { id:"focus", label:"Focus", unit:"%", min:0, max:100, color:"#ffcc66" },
+    { id:"frost", label:"Frost", unit:"%", min:0, max:100, color:"#aaccff" },
+    { id:"prism", label:"Prism", unit:"", min:0, max:1, color:"#ff66ff" },
+  ]},
+  { group:"BLADES", color:"#aa66ff", params:[
+    { id:"blade_a", label:"Blade A", unit:"%", min:0, max:100, color:"#aa66ff" },
+    { id:"blade_a_rot", label:"A Rot", unit:"\u00B0", min:0, max:360, color:"#aa77ff" },
+    { id:"blade_b", label:"Blade B", unit:"%", min:0, max:100, color:"#bb77ff" },
+    { id:"blade_b_rot", label:"B Rot", unit:"\u00B0", min:0, max:360, color:"#bb88ff" },
+    { id:"blade_c", label:"Blade C", unit:"%", min:0, max:100, color:"#cc88ff" },
+    { id:"blade_c_rot", label:"C Rot", unit:"\u00B0", min:0, max:360, color:"#cc99ff" },
+    { id:"blade_d", label:"Blade D", unit:"%", min:0, max:100, color:"#dd99ff" },
+    { id:"blade_d_rot", label:"D Rot", unit:"\u00B0", min:0, max:360, color:"#ddaaff" },
+    { id:"blade_rot", label:"Rotation", unit:"\u00B0", min:0, max:360, color:"#ee99ff" },
+  ]},
+  { group:"GOBO", color:"#44ffaa", params:[
+    { id:"gobo_a", label:"Gobo A", unit:"slot", min:0, max:8, color:"#44ffaa" },
+    { id:"gobo_a_rot", label:"A Rot", unit:"\u00B0", min:0, max:360, color:"#66ffbb" },
+    { id:"gobo_b", label:"Gobo B", unit:"slot", min:0, max:8, color:"#88ffcc" },
+    { id:"gobo_b_rot", label:"B Rot", unit:"\u00B0", min:0, max:360, color:"#aaffdd" },
+  ]},
+];
+const ALL_PARAMS = PARAM_GROUPS.flatMap(g => g.params);
+const getParam = id => ALL_PARAMS.find(p => p.id === id);
+
+const DMX_PROFILES = {
+  SPOT: { channels:19, map:{ dimmer:1, pan:1, tilt:1, cyan:1, magenta:1, yellow:1, white:1, colorwheel:1, zoom:1, iris:1, focus:1, blade_a:1, blade_b:1, blade_c:1, blade_d:1, blade_rot:1, gobo_a:1 }},
+  WASH: { channels:10, map:{ dimmer:1, pan:1, tilt:1, cyan:1, magenta:1, yellow:1, white:1, zoom:1 }},
+  STROBE: { channels:3, map:{ dimmer:1, strobe:1, colorwheel:1 }},
+  LED: { channels:8, map:{ dimmer:1, cyan:1, magenta:1, yellow:1, white:1, strobe:1, zoom:1, colorwheel:1 }},
+  FX: { channels:2, map:{ dimmer:1, strobe:1 }},
+  DIM: { channels:1, map:{ dimmer:1 }},
+  ROBE_MP: { channels:38, map:{ pan:1, tilt:1, cyan:1, magenta:1, yellow:1, colorwheel:1, gobo_a:1, gobo_a_rot:1, zoom:1, focus:1, strobe:1, dimmer:1 }},
+  ROBE_MP2: { channels:34, map:{ pan:1, tilt:1, cyan:1, magenta:1, yellow:1, colorwheel:1, gobo_a:1, gobo_a_rot:1, zoom:1, focus:1, strobe:1, dimmer:1 }},
+  MAC_VIPER: { channels:26, map:{ strobe:1, dimmer:1, cyan:1, magenta:1, yellow:1, colorwheel:1, gobo_a:1, gobo_a_rot:1, iris:1, zoom:1, focus:1, pan:1, tilt:1 }},
+  MAC_VIPER2: { channels:34, map:{ strobe:1, dimmer:1, cyan:1, magenta:1, yellow:1, colorwheel:1, gobo_a:1, gobo_a_rot:1, iris:1, zoom:1, focus:1, pan:1, tilt:1 }},
+  // Also match the full profile name used in main app
+  MARTINVIPERPERF_32CH: { channels:32, map:{ strobe:1, dimmer:1, cyan:1, magenta:1, yellow:1, cto:1, colorwheel:1, gobo_a:1, blade_a:1, blade_a_rot:1, blade_b:1, blade_b_rot:1, blade_c:1, blade_c_rot:1, blade_d:1, blade_d_rot:1, blade_rot:1, frost:1, prism:1, iris:1, zoom:1, focus:1, pan:1, tilt:1 }},
+};
+
+// Get the list of param IDs for a fixture (from type or from live data keys)
+function getFixtureParams(fx) {
+  // First try DMX_PROFILES by fixture type
+  const prof = DMX_PROFILES[fx.type];
+  if (prof) return Object.keys(prof.map);
+  // Fallback: discover from live data keys
+  const prefix = fx.id + '-';
+  const params = [];
+  for (const key of Object.keys(live)) {
+    if (key.startsWith(prefix)) params.push(key.slice(prefix.length));
+  }
+  return params.length > 0 ? params : ['dimmer'];
+}
+
+// ─── Param helpers — use ACTUAL param names from live data ───
+function pv(id, param) { return live[id + '-' + param]; }
+function pvd(id, param, def) { const v = pv(id, param); return v !== undefined ? v : def; }
+
+function getFixtureColor(id) {
+  const dim = pvd(id, 'dimmer', 0) / 100;
+  let r = 1, g = 1, b = 1;
+  // CMY subtractive mixing
+  const cy = pvd(id, 'cyan', 0) / 100;
+  const mg = pvd(id, 'magenta', 0) / 100;
+  const yl = pvd(id, 'yellow', 0) / 100;
+  r = Math.max(0, r - cy);
+  g = Math.max(0, g - mg);
+  b = Math.max(0, b - yl);
+  // CTO (warm shift)
+  const cto = pvd(id, 'cto', 0) / 100;
+  if (cto > 0) { r = Math.min(1, r + cto * 0.15); g *= (1 - cto * 0.2); b *= (1 - cto * 0.45); }
+  return {
+    dim, r: r*dim, g: g*dim, b: b*dim,
+    rawR: r, rawG: g, rawB: b,
+    hex: `rgb(${Math.round(r*dim*255)},${Math.round(g*dim*255)},${Math.round(b*dim*255)})`,
+    rawHex: `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`,
+  };
+}
+
+function getFixtureData(id) {
+  const col = getFixtureColor(id);
+  return {
+    ...col,
+    pan: pvd(id,'pan',0), tilt: pvd(id,'tilt',0),
+    strobe: pvd(id,'strobe',0), zoom: pvd(id,'zoom',50),
+    iris: pvd(id,'iris',0), focus: pvd(id,'focus',0),
+    gobo: Math.round(pvd(id,'gobo_a',0)),
+    bladeA: pvd(id,'blade_a',0), bladeARot: pvd(id,'blade_a_rot',0),
+    bladeB: pvd(id,'blade_b',0), bladeBRot: pvd(id,'blade_b_rot',0),
+    bladeC: pvd(id,'blade_c',0), bladeCRot: pvd(id,'blade_c_rot',0),
+    bladeD: pvd(id,'blade_d',0), bladeDRot: pvd(id,'blade_d_rot',0),
+    bladeRot: pvd(id,'blade_rot',0),
+    cyan: pvd(id,'cyan',0), cto: pvd(id,'cto',0),
+  };
+}
+
+// ─── Layout ───
+function buildLayout(W, H) {
+  const groups = {};
+  fixtures.forEach(fx => { const p = fx.position || 'CUSTOM'; if (!groups[p]) groups[p] = []; groups[p].push(fx); });
+  const positions = {};
+  const R = Math.max(12, Math.min(24, W / (fixtures.length + 4) * 0.8));
+  GROUP_ORDER.forEach(grp => {
+    const fxList = groups[grp]; if (!fxList) return;
+    const gy = GROUP_Y[grp] * H;
+    if (grp === 'SIDE') {
+      const mid = Math.ceil(fxList.length / 2);
+      fxList.forEach((fx, i) => {
+        if (i < mid) positions[fx.id] = {x:R*2, y:gy+(i-mid/2)*(R*2.5), r:R};
+        else positions[fx.id] = {x:W-R*2, y:gy+((i-mid)-(fxList.length-mid)/2)*(R*2.5), r:R};
+      });
+    } else {
+      const n = fxList.length, sp = Math.min(R*3, (W*0.8)/n), tw = sp*(n-1), sx = W/2-tw/2;
+      fxList.forEach((fx, i) => { positions[fx.id] = {x:sx+i*sp, y:gy, r:R}; });
+    }
+  });
+  return {positions, radius: R};
+}
+
+// ─── Stage Canvas ───
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+let stageTime = 0;
+
+function drawStage(W, H, layout) {
+  stageTime += 0.016;
+  ctx.fillStyle = '#050508';
+  ctx.fillRect(0, 0, W, H);
+
+  // Floor/stage surface gradient
+  const floorGrd = ctx.createLinearGradient(0, 0, 0, H);
+  floorGrd.addColorStop(0, '#060810');
+  floorGrd.addColorStop(0.5, '#080a12');
+  floorGrd.addColorStop(1, '#050508');
+  ctx.fillStyle = floorGrd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle perspective grid
+  ctx.globalAlpha = 0.15;
+  ctx.strokeStyle = '#0e1420';
+  ctx.lineWidth = 0.5;
+  const gridSize = 50;
+  for (let x = 0; x < W; x += gridSize) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += gridSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+
+  // Group zone labels
+  const drawnGroups = new Set();
+  GROUP_ORDER.forEach(grp => {
+    if (drawnGroups.has(grp)) return;
+    drawnGroups.add(grp);
+    const gy = GROUP_Y[grp] * H;
+    ctx.fillStyle = '#0e1525';
+    ctx.font = '600 8px "Courier New"';
+    ctx.textAlign = 'left';
+    ctx.fillText(grp, 8, gy - 18);
+    ctx.strokeStyle = '#0c1018';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(8, gy-12); ctx.lineTo(80, gy-12); ctx.stroke();
+  });
+
+  // ─── BEAM CONES (beams project downward from fixtures like truss-hung movers) ───
+  fixtures.forEach(fx => {
+    const pos = layout.positions[fx.id];
+    if (!pos) return;
+    const d = getFixtureData(fx.id);
+    if (d.dim < 0.02) return;
+
+    const {x, y, r} = pos;
+    const bR = Math.round(d.r * 255), bG = Math.round(d.g * 255), bB = Math.round(d.b * 255);
+
+    // Pan: 0=-270°, 127=0°(center/forward), 255=+270° (540° total)
+    // Pan=127 → 0° → beam points to screen top (12 o'clock)
+    // Pan moves beam in a circle like an analog clock
+    // Tilt: 270° total, 135° each direction from center
+    // DMX 127 / value 135 = center (straight down)
+    // DMX 255 / value 270 = forward (screen top), 135° from center
+    // DMX 0 / value 0 = backward (screen bottom), 135° from center
+    // At 90° from center = horizontal = max floor projection
+    // Beyond 90° = pointing toward ceiling = projection shrinks
+    const panDeg = d.pan - 270;
+    const panRad = (panDeg / 180) * Math.PI;
+
+    const tiltVal = d.tilt; // DMX 0-255, 127 = center
+    const tiltAngleDeg = (tiltVal - 127) * (135 / 127); // map to -135 to +135 degrees
+    const tiltMode = tiltVal === 127 ? 2 : (tiltVal > 127 ? 3 : 1);
+    // Direction: positive = forward (screen top), negative = backward (screen bottom)
+    const tiltDir = tiltAngleDeg > 0 ? 1 : tiltAngleDeg < 0 ? -1 : 0;
+    // Projection uses sin() — 0 at center, max at 90°, shrinks past 90° (ceiling)
+    const tiltAngleRad = (Math.abs(tiltAngleDeg) / 180) * Math.PI;
+    const tiltAway = Math.sin(tiltAngleRad); // 0→1→0.707 as angle goes 0°→90°→135°
+
+    const beamLen = r * (5 + d.dim * 12);
+    const zoomSpread = 0.15 + (d.zoom / 100) * 0.6;
+    const irisScale = 1 - (d.iris / 100) * 0.7;
+
+    // Mode 2: no beam projection. Mode 1 & 3: beam projects outward
+    const dist = tiltMode === 2 ? 0 : beamLen * tiltAway;
+    const endX = tiltMode === 2 ? x : x + Math.sin(panRad) * dist * tiltDir;
+    const endY = tiltMode === 2 ? y : y - Math.cos(panRad) * dist * tiltDir;
+    const spreadEnd = beamLen * zoomSpread * 0.8 * irisScale;
+
+    // Floor spot size from zoom + iris
+    const zoomSize = r * (0.5 + (d.zoom / 100) * 2.5);
+    const irisClose = 1 - (d.iris / 100) * 0.7;
+    const spotR = zoomSize * irisClose;
+
+    if (tiltMode === 2) {
+      // CENTER — beam straight down, glow spot at fixture
+      const spotGrd = ctx.createRadialGradient(x, y, 0, x, y, spotR);
+      spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
+      spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+      spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+      ctx.fillStyle = spotGrd;
+      ctx.beginPath(); ctx.arc(x, y, spotR, 0, Math.PI*2); ctx.fill();
+
+      // Gobo pattern on center spot
+      if (d.gobo > 0) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(x, y, spotR * 0.9, 0, Math.PI*2); ctx.clip();
+        ctx.globalAlpha = 0.25 * d.dim;
+        ctx.fillStyle = '#000';
+        const gs = spotR * 0.7;
+        if (d.gobo === 1) { for (let i=0;i<6;i++) { const a=i*Math.PI/3; ctx.beginPath(); ctx.arc(x+Math.cos(a)*gs*0.5, y+Math.sin(a)*gs*0.5, gs*0.18, 0, Math.PI*2); ctx.fill(); } }
+        else if (d.gobo === 2) { ctx.beginPath(); for (let i=0;i<8;i++) { const a=i*Math.PI/4; const r2=i%2?gs*0.9:gs*0.35; ctx.lineTo(x+Math.cos(a)*r2, y+Math.sin(a)*r2); } ctx.closePath(); ctx.fill(); }
+        else if (d.gobo === 3) { ctx.fillRect(x-gs*0.06, y-gs*0.7, gs*0.12, gs*1.4); ctx.fillRect(x-gs*0.7, y-gs*0.06, gs*1.4, gs*0.12); }
+        else if (d.gobo === 4) { ctx.beginPath(); ctx.moveTo(x, y-gs*0.7); ctx.lineTo(x+gs*0.6, y+gs*0.5); ctx.lineTo(x-gs*0.6, y+gs*0.5); ctx.closePath(); ctx.fill(); }
+        else { ctx.beginPath(); for (let i=0;i<6;i++) { const a=i*Math.PI/3; const ri=i%2?gs:gs*0.4; ctx.lineTo(x+Math.cos(a)*ri, y+Math.sin(a)*ri); } ctx.closePath(); ctx.fill(); }
+        ctx.restore();
+      }
+    } else {
+      // MODE 1 or 3 — beam projects outward
+      const dx = endX - x, dy = endY - y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const perpX = -dy / len, perpY = dx / len;
+
+      // Fixture circle gap endpoints — beam starts from here
+      const lensR = r * 0.65;
+      const beamAng = Math.atan2(dy, dx);
+      const gapH = 0.25 + (d.zoom / 100) * 0.4;
+      const gapAx = x + lensR * Math.cos(beamAng + gapH);
+      const gapAy = y + lensR * Math.sin(beamAng + gapH);
+      const gapBx = x + lensR * Math.cos(beamAng - gapH);
+      const gapBy = y + lensR * Math.sin(beamAng - gapH);
+
+      // === Gobo shape helper: builds gobo cutout path at (cx,cy) with size gs ===
+      const goboPath = (cx, cy, gs, gobo) => {
+        if (gobo === 1) {
+          for (let i=0;i<6;i++) { const a=i*Math.PI/3; ctx.moveTo(cx+Math.cos(a)*gs*0.5+gs*0.18, cy+Math.sin(a)*gs*0.5); ctx.arc(cx+Math.cos(a)*gs*0.5, cy+Math.sin(a)*gs*0.5, gs*0.18, 0, Math.PI*2); }
+        } else if (gobo === 2) {
+          ctx.moveTo(cx+gs*0.35, cy); for (let i=0;i<8;i++) { const a=i*Math.PI/4; const r2=i%2?gs*0.9:gs*0.35; ctx.lineTo(cx+Math.cos(a)*r2, cy+Math.sin(a)*r2); } ctx.closePath();
+        } else if (gobo === 3) {
+          const w=gs*0.08, h=gs*0.7;
+          ctx.moveTo(cx-w,cy-h); ctx.lineTo(cx+w,cy-h); ctx.lineTo(cx+w,cy-w); ctx.lineTo(cx+h,cy-w); ctx.lineTo(cx+h,cy+w); ctx.lineTo(cx+w,cy+w); ctx.lineTo(cx+w,cy+h); ctx.lineTo(cx-w,cy+h); ctx.lineTo(cx-w,cy+w); ctx.lineTo(cx-h,cy+w); ctx.lineTo(cx-h,cy-w); ctx.lineTo(cx-w,cy-w); ctx.closePath();
+        } else if (gobo === 4) {
+          ctx.moveTo(cx, cy-gs*0.7); ctx.lineTo(cx+gs*0.6, cy+gs*0.5); ctx.lineTo(cx-gs*0.6, cy+gs*0.5); ctx.closePath();
+        } else {
+          for (let i=0;i<6;i++) { const a=i*Math.PI/3; const hx=cx+Math.cos(a)*gs*0.4; const hy=cy+Math.sin(a)*gs*0.4; ctx.moveTo(hx+gs*0.2, hy); for (let j=1;j<=6;j++) { const a2=j*Math.PI/3; ctx.lineTo(hx+Math.cos(a2)*gs*0.2, hy+Math.sin(a2)*gs*0.2); } ctx.closePath(); }
+        }
+      };
+
+      const hasGobo = d.gobo > 0;
+      const gs = spotR * 0.7;
+
+      if (!hasGobo) {
+        // === NO GOBO: normal circle beam ===
+        // Beam fill cone
+        const beamGrd = ctx.createLinearGradient(x, y, endX, endY);
+        beamGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.6 * d.dim})`);
+        beamGrd.addColorStop(0.3, `rgba(${bR},${bG},${bB},${0.45 * d.dim})`);
+        beamGrd.addColorStop(0.7, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        beamGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.fillStyle = beamGrd;
+        const angA = Math.atan2(perpY * spotR, perpX * spotR);
+        const angB = Math.atan2(-perpY * spotR, -perpX * spotR);
+        ctx.beginPath();
+        ctx.moveTo(gapAx, gapAy);
+        ctx.lineTo(endX + perpX * spotR, endY + perpY * spotR);
+        ctx.arc(endX, endY, spotR, angA, angB, true);
+        ctx.lineTo(gapBx, gapBy);
+        ctx.closePath();
+        ctx.fill();
+        // Beam edge lines
+        const edgeAx = endX + perpX * spotR, edgeAy = endY + perpY * spotR;
+        const edgeBx = endX - perpX * spotR, edgeBy = endY - perpY * spotR;
+        const lineGrdA = ctx.createLinearGradient(gapAx, gapAy, edgeAx, edgeAy);
+        lineGrdA.addColorStop(0, `rgba(${bR},${bG},${bB},${0.6 * d.dim})`);
+        lineGrdA.addColorStop(0.75, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        lineGrdA.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.strokeStyle = lineGrdA; ctx.lineWidth = 0.75;
+        ctx.beginPath(); ctx.moveTo(gapAx, gapAy); ctx.lineTo(edgeAx, edgeAy); ctx.stroke();
+        const lineGrdB = ctx.createLinearGradient(gapBx, gapBy, edgeBx, edgeBy);
+        lineGrdB.addColorStop(0, `rgba(${bR},${bG},${bB},${0.6 * d.dim})`);
+        lineGrdB.addColorStop(0.75, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        lineGrdB.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.strokeStyle = lineGrdB;
+        ctx.beginPath(); ctx.moveTo(gapBx, gapBy); ctx.lineTo(edgeBx, edgeBy); ctx.stroke();
+        // Floor spot circle
+        const spotGrd = ctx.createRadialGradient(endX, endY, 0, endX, endY, spotR);
+        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
+        spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+        spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.fillStyle = spotGrd;
+        ctx.beginPath(); ctx.arc(endX, endY, spotR, 0, Math.PI*2); ctx.fill();
+      } else {
+        // === GOBO ACTIVE: beam and spot follow gobo shape ===
+        // Beam fill — fan from fixture gap to gobo shape outline
+        const beamGrd = ctx.createLinearGradient(x, y, endX, endY);
+        beamGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.6 * d.dim})`);
+        beamGrd.addColorStop(0.3, `rgba(${bR},${bG},${bB},${0.45 * d.dim})`);
+        beamGrd.addColorStop(0.7, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        beamGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.fillStyle = beamGrd;
+        // Clip to a wide cone area, then fill gobo fan shapes
+        ctx.save();
+        const angA = Math.atan2(perpY * spotR, perpX * spotR);
+        const angB = Math.atan2(-perpY * spotR, -perpX * spotR);
+        ctx.beginPath();
+        ctx.moveTo(gapAx, gapAy);
+        ctx.lineTo(endX + perpX * spotR * 1.2, endY + perpY * spotR * 1.2);
+        ctx.arc(endX, endY, spotR * 1.2, angA, angB, true);
+        ctx.lineTo(gapBx, gapBy);
+        ctx.closePath();
+        ctx.clip();
+        // Draw fan shapes from fixture center to each gobo cutout piece
+        if (d.gobo === 1) {
+          for (let i=0;i<6;i++) { const a=i*Math.PI/3; const ccx=endX+Math.cos(a)*gs*0.5; const ccy=endY+Math.sin(a)*gs*0.5; const cr=gs*0.18; const aTC=Math.atan2(ccy-y,ccx-x); ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(ccx+cr*Math.cos(aTC+Math.PI/2),ccy+cr*Math.sin(aTC+Math.PI/2)); ctx.arc(ccx,ccy,cr,aTC+Math.PI/2,aTC-Math.PI/2,false); ctx.closePath(); ctx.fill(); }
+        } else if (d.gobo === 2) {
+          ctx.beginPath(); ctx.moveTo(x,y); for (let i=0;i<8;i++) { const a=i*Math.PI/4; const r2=i%2?gs*0.9:gs*0.35; ctx.lineTo(endX+Math.cos(a)*r2,endY+Math.sin(a)*r2); } ctx.closePath(); ctx.fill();
+        } else if (d.gobo === 3) {
+          const w=gs*0.08, h=gs*0.7;
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX-w,endY-h); ctx.lineTo(endX+w,endY-h); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX+w,endY+h); ctx.lineTo(endX-w,endY+h); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX-h,endY-w); ctx.lineTo(endX-h,endY+w); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX+h,endY+w); ctx.lineTo(endX+h,endY-w); ctx.closePath(); ctx.fill();
+          // Center junction
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX-w,endY-w); ctx.lineTo(endX+w,endY-w); ctx.lineTo(endX+w,endY+w); ctx.lineTo(endX-w,endY+w); ctx.closePath(); ctx.fill();
+        } else if (d.gobo === 4) {
+          ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(endX,endY-gs*0.7); ctx.lineTo(endX+gs*0.6,endY+gs*0.5); ctx.lineTo(endX-gs*0.6,endY+gs*0.5); ctx.closePath(); ctx.fill();
+        } else {
+          for (let i=0;i<6;i++) { const a=i*Math.PI/3; const hx=endX+Math.cos(a)*gs*0.4; const hy=endY+Math.sin(a)*gs*0.4; const hr=gs*0.2; const aTC=Math.atan2(hy-y,hx-x); ctx.beginPath(); ctx.moveTo(x,y); for (let j=0;j<6;j++) { const a2=j*Math.PI/3; ctx.lineTo(hx+Math.cos(a2)*hr,hy+Math.sin(a2)*hr); } ctx.closePath(); ctx.fill(); }
+        }
+        ctx.restore();
+        // Beam edge lines to gobo shape outline
+        const lineGrdA = ctx.createLinearGradient(gapAx, gapAy, endX, endY);
+        lineGrdA.addColorStop(0, `rgba(${bR},${bG},${bB},${0.5 * d.dim})`);
+        lineGrdA.addColorStop(0.8, `rgba(${bR},${bG},${bB},${0.2 * d.dim})`);
+        lineGrdA.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        const lineGrdB = ctx.createLinearGradient(gapBx, gapBy, endX, endY);
+        lineGrdB.addColorStop(0, `rgba(${bR},${bG},${bB},${0.5 * d.dim})`);
+        lineGrdB.addColorStop(0.8, `rgba(${bR},${bG},${bB},${0.2 * d.dim})`);
+        lineGrdB.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.lineWidth = 0.75;
+        // Get gobo outline vertices for edge lines
+        if (d.gobo === 1) {
+          // Lines to outermost circle tangent points
+          for (let i=0;i<6;i++) { const a=i*Math.PI/3; const ccx=endX+Math.cos(a)*gs*0.5; const ccy=endY+Math.sin(a)*gs*0.5; const cr=gs*0.18; const aTC=Math.atan2(ccy-y,ccx-x); const lGrd=ctx.createLinearGradient(x,y,ccx,ccy); lGrd.addColorStop(0,`rgba(${bR},${bG},${bB},${0.5*d.dim})`); lGrd.addColorStop(0.8,`rgba(${bR},${bG},${bB},${0.15*d.dim})`); lGrd.addColorStop(1,`rgba(${bR},${bG},${bB},0)`); ctx.strokeStyle=lGrd; ctx.beginPath(); ctx.moveTo(gapAx,gapAy); ctx.lineTo(ccx+cr*Math.cos(aTC+Math.PI/2),ccy+cr*Math.sin(aTC+Math.PI/2)); ctx.stroke(); ctx.beginPath(); ctx.moveTo(gapBx,gapBy); ctx.lineTo(ccx+cr*Math.cos(aTC-Math.PI/2),ccy+cr*Math.sin(aTC-Math.PI/2)); ctx.stroke(); }
+        } else {
+          // Generic: 2 outer edge lines to the widest gobo points
+          ctx.strokeStyle = lineGrdA;
+          ctx.beginPath(); ctx.moveTo(gapAx, gapAy);
+          if (d.gobo===2) ctx.lineTo(endX+Math.cos(Math.PI/4)*gs*0.9, endY+Math.sin(Math.PI/4)*gs*0.9);
+          else if (d.gobo===3) ctx.lineTo(endX+gs*0.7, endY);
+          else if (d.gobo===4) ctx.lineTo(endX+gs*0.6, endY+gs*0.5);
+          else ctx.lineTo(endX+Math.cos(Math.PI/3)*gs*0.6, endY+Math.sin(Math.PI/3)*gs*0.6);
+          ctx.stroke();
+          ctx.strokeStyle = lineGrdB;
+          ctx.beginPath(); ctx.moveTo(gapBx, gapBy);
+          if (d.gobo===2) ctx.lineTo(endX+Math.cos(-Math.PI/4)*gs*0.9, endY+Math.sin(-Math.PI/4)*gs*0.9);
+          else if (d.gobo===3) ctx.lineTo(endX-gs*0.7, endY);
+          else if (d.gobo===4) ctx.lineTo(endX-gs*0.6, endY+gs*0.5);
+          else ctx.lineTo(endX+Math.cos(-Math.PI/3)*gs*0.6, endY+Math.sin(-Math.PI/3)*gs*0.6);
+          ctx.stroke();
+        }
+        // Floor spot — gobo shape (no circle)
+        const spotGrd = ctx.createRadialGradient(endX, endY, 0, endX, endY, spotR);
+        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
+        spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+        spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+        ctx.fillStyle = spotGrd;
+        ctx.beginPath();
+        goboPath(endX, endY, gs, d.gobo);
+        ctx.fill();
+      }
+
+      // === BLADES (framing shutters) ===
+      // 4 blades, each with 2 corners (left & right) that slide toward center
+      // blade_a = A left corner, blade_a_rot = A right corner, etc.
+      // blade_rot = global rotation of all blades
+      // 0% = fully out (no cut), 100% = at center
+      const bA_L = d.bladeA / 100, bA_R = d.bladeARot / 100;
+      const bB_L = d.bladeB / 100, bB_R = d.bladeBRot / 100;
+      const bC_L = d.bladeC / 100, bC_R = d.bladeCRot / 100;
+      const bD_L = d.bladeD / 100, bD_R = d.bladeDRot / 100;
+      const hasBlades = bA_L > 0 || bA_R > 0 || bB_L > 0 || bB_R > 0 ||
+                        bC_L > 0 || bC_R > 0 || bD_L > 0 || bD_R > 0;
+      if (hasBlades) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(endX, endY, spotR * 1.05, 0, Math.PI * 2); ctx.clip();
+        ctx.translate(endX, endY);
+        ctx.rotate(((d.bladeRot || 0) / 360) * Math.PI * 2);
+        ctx.fillStyle = `rgba(0,0,0,${0.8 * d.dim})`;
+        const s = spotR;
+        // Blade A (from top): 0%=open, 100%(DMX255)=center
+        if (bA_L > 0 || bA_R > 0) {
+          const lyA = -s + bA_L * s;
+          const ryA = -s + bA_R * s;
+          ctx.beginPath();
+          ctx.moveTo(-s * 1.5, lyA);
+          ctx.lineTo(s * 1.5, ryA);
+          ctx.lineTo(s * 1.5, -s * 1.5);
+          ctx.lineTo(-s * 1.5, -s * 1.5);
+          ctx.closePath(); ctx.fill();
+        }
+        // Blade B (from right): 0%=open, 100%(DMX255)=center
+        if (bB_L > 0 || bB_R > 0) {
+          const lxB = s - bB_L * s;
+          const rxB = s - bB_R * s;
+          ctx.beginPath();
+          ctx.moveTo(lxB, -s * 1.5);
+          ctx.lineTo(rxB, s * 1.5);
+          ctx.lineTo(s * 1.5, s * 1.5);
+          ctx.lineTo(s * 1.5, -s * 1.5);
+          ctx.closePath(); ctx.fill();
+        }
+        // Blade C (from bottom): 0%=open, 100%(DMX255)=center
+        if (bC_L > 0 || bC_R > 0) {
+          const lyC = s - bC_L * s;
+          const ryC = s - bC_R * s;
+          ctx.beginPath();
+          ctx.moveTo(s * 1.5, lyC);
+          ctx.lineTo(-s * 1.5, ryC);
+          ctx.lineTo(-s * 1.5, s * 1.5);
+          ctx.lineTo(s * 1.5, s * 1.5);
+          ctx.closePath(); ctx.fill();
+        }
+        // Blade D (from left): 0%=open, 100%(DMX255)=center
+        if (bD_L > 0 || bD_R > 0) {
+          const lxD = -s + bD_L * s;
+          const rxD = -s + bD_R * s;
+          ctx.beginPath();
+          ctx.moveTo(lxD, s * 1.5);
+          ctx.lineTo(rxD, -s * 1.5);
+          ctx.lineTo(-s * 1.5, -s * 1.5);
+          ctx.lineTo(-s * 1.5, s * 1.5);
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  });
+
+  // ─── FIXTURES ───
+  fixtures.forEach(fx => {
+    const pos = layout.positions[fx.id];
+    if (!pos) return;
+    const d = getFixtureData(fx.id);
+    const {x, y, r} = pos;
+    const isSel = fx.id === selectedId;
+
+    const lensR = r * 0.65;
+    const bR2 = Math.round(d.r*255), bG2 = Math.round(d.g*255), bB2 = Math.round(d.b*255);
+
+    // Fixture circle with gap where beam exits
+    if (d.dim > 0.02) {
+      // Calculate beam direction angle to cut a gap
+      const panDeg2 = d.pan - 270;
+      const panRad2 = (panDeg2 / 180) * Math.PI;
+      const tiltVal2 = d.tilt;
+      const tiltAngleDeg2 = (tiltVal2 - 127) * (135 / 127);
+      const tiltMode2 = tiltVal2 === 127 ? 2 : (tiltVal2 > 127 ? 3 : 1);
+      const tiltDir2 = tiltAngleDeg2 > 0 ? 1 : tiltAngleDeg2 < 0 ? -1 : 0;
+      const tiltAngleRad2 = (Math.abs(tiltAngleDeg2) / 180) * Math.PI;
+      const tiltAway2 = Math.sin(tiltAngleRad2);
+      // Beam direction — circular, sin() projection, direction flips
+      const bDx = Math.sin(panRad2) * tiltAway2 * tiltDir2;
+      const bDy = -Math.cos(panRad2) * tiltAway2 * tiltDir2;
+      const beamAngle = Math.atan2(bDy, bDx);
+      // Gap size based on zoom
+      const gapHalf = 0.25 + (pvd(fx.id,'zoom',50) / 100) * 0.4;
+      ctx.strokeStyle = '#c0c8d4';
+      ctx.lineWidth = 1.2;
+      if (tiltMode2 === 2) {
+        // CENTER — closed circle, no gap, no lines
+        ctx.beginPath();
+        ctx.arc(x, y, lensR, 0, Math.PI*2);
+        ctx.stroke();
+      } else {
+        // Gap + small lines
+        ctx.beginPath();
+        ctx.arc(x, y, lensR, beamAngle + gapHalf, beamAngle + Math.PI*2 - gapHalf);
+        ctx.stroke();
+        const bNorm = Math.sqrt(bDx*bDx + bDy*bDy) || 1;
+        const buX = bDx/bNorm, buY = bDy/bNorm;
+        const gLineLen = Math.min(10, (r + 5) - lensR);
+        const g1x = x + lensR * Math.cos(beamAngle + gapHalf);
+        const g1y = y + lensR * Math.sin(beamAngle + gapHalf);
+        const g2x = x + lensR * Math.cos(beamAngle - gapHalf);
+        const g2y = y + lensR * Math.sin(beamAngle - gapHalf);
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(g1x, g1y); ctx.lineTo(g1x + buX*gLineLen, g1y + buY*gLineLen); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(g2x, g2y); ctx.lineTo(g2x + buX*gLineLen, g2y + buY*gLineLen); ctx.stroke();
+      }
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, lensR, 0, Math.PI*2);
+      ctx.strokeStyle = '#c0c8d4';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    // Fixture number in center
+    ctx.fillStyle = '#c0c8d4';
+    ctx.font = `bold ${Math.max(8, lensR * 0.9)}px "Courier New"`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((fx.name.match(/\d+/) || [''])[0], x, y);
+
+    // Selection ring
+    if (isSel) {
+      ctx.beginPath(); ctx.arc(x, y, r + 5, 0, Math.PI*2);
+      ctx.strokeStyle = '#3a6adf'; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    // Label
+    ctx.fillStyle = '#8a95a8';
+    ctx.font = `bold ${Math.max(7, r*0.38)}px "Courier New"`;
+    ctx.textAlign = 'center';
+    ctx.fillText(fx.name, x, y + r + 14);
+
+    // Dimmer % below name
+    if (d.dim > 0.03) {
+      ctx.fillStyle = `rgba(${Math.round(d.r*255)},${Math.round(d.g*255)},${Math.round(d.b*255)},0.6)`;
+      ctx.font = `${Math.max(6, r*0.3)}px "Courier New"`;
+      ctx.fillText(Math.round(d.dim*100) + '%', x, y + r + 22);
+    }
+  });
+  ctx.textAlign = 'left';
+}
+
+// ─── Lens + Beam Renderer (no plastic parts) ───
+const mhCanvas = document.getElementById('c-mh');
+const mhCtx = mhCanvas.getContext('2d');
+
+function drawMovingHead(d) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = 300, h = 260;
+  if (mhCanvas.width !== w*dpr || mhCanvas.height !== h*dpr) {
+    mhCanvas.width = w * dpr;
+    mhCanvas.height = h * dpr;
+  }
+  const c = mhCtx;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+
+  // Background
+  c.fillStyle = '#030406';
+  c.fillRect(0, 0, w, h);
+
+  const cx = w / 2;
+  const lensR = 38; // big lens, centered
+  const lensY = h - 50; // lens near bottom, beam shoots up
+  const bR = Math.round(d.r*255), bG = Math.round(d.g*255), bB = Math.round(d.b*255);
+  const rawR = Math.round(d.rawR*255), rawG = Math.round(d.rawG*255), rawB = Math.round(d.rawB*255);
+
+  // ═══ BEAM CONE (shoots upward from lens) ═══
+  if (d.dim > 0.02) {
+    const beamLen = h * 0.75 * (0.5 + d.dim * 0.5);
+    const zoomSpread = 0.15 + (d.zoom / 100) * 0.7;
+    const irisScale = 1 - (d.iris / 100) * 0.7;
+    const beamW = lensR * (0.8 + zoomSpread * 3) * irisScale;
+    const focusSharp = d.focus / 100;
+
+    // Volumetric beam glow (wide, soft)
+    const glowGrd = c.createLinearGradient(cx, lensY, cx, lensY - beamLen);
+    glowGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.08 * d.dim})`);
+    glowGrd.addColorStop(0.5, `rgba(${bR},${bG},${bB},${0.03 * d.dim})`);
+    glowGrd.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = glowGrd;
+    c.beginPath();
+    c.moveTo(cx - lensR * 0.6, lensY);
+    c.lineTo(cx - beamW * 1.3, lensY - beamLen);
+    c.lineTo(cx + beamW * 1.3, lensY - beamLen);
+    c.lineTo(cx + lensR * 0.6, lensY);
+    c.closePath(); c.fill();
+
+    // Main beam cone
+    const beamGrd = c.createLinearGradient(cx, lensY, cx, lensY - beamLen);
+    beamGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.35 * d.dim})`);
+    beamGrd.addColorStop(0.2, `rgba(${bR},${bG},${bB},${0.18 * d.dim})`);
+    beamGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.06 * d.dim})`);
+    beamGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
+    c.fillStyle = beamGrd;
+    c.beginPath();
+    c.moveTo(cx - lensR * 0.4 * irisScale, lensY);
+    c.lineTo(cx - beamW, lensY - beamLen);
+    c.lineTo(cx + beamW, lensY - beamLen);
+    c.lineTo(cx + lensR * 0.4 * irisScale, lensY);
+    c.closePath(); c.fill();
+
+    // Beam edge lines
+    c.strokeStyle = `rgba(${bR},${bG},${bB},${0.08 * d.dim})`;
+    c.lineWidth = 0.5;
+    c.beginPath(); c.moveTo(cx - lensR*0.3*irisScale, lensY); c.lineTo(cx - beamW, lensY - beamLen); c.stroke();
+    c.beginPath(); c.moveTo(cx + lensR*0.3*irisScale, lensY); c.lineTo(cx + beamW, lensY - beamLen); c.stroke();
+
+    // Frost effect (soft haze around beam)
+    const frostVal = pvd(selectedId, 'frost', 0);
+    if (frostVal > 5) {
+      const frostGrd = c.createRadialGradient(cx, lensY - beamLen*0.4, 0, cx, lensY - beamLen*0.4, beamW * 2);
+      frostGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.04 * d.dim * frostVal/100})`);
+      frostGrd.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = frostGrd;
+      c.beginPath(); c.arc(cx, lensY - beamLen*0.4, beamW*2, 0, Math.PI*2); c.fill();
+    }
+
+    // Gobo pattern projected in beam
+    if (d.gobo > 0) {
+      c.globalAlpha = 0.2 * d.dim;
+      c.fillStyle = '#000';
+      const gy = lensY - beamLen * 0.45;
+      const gs = beamW * 0.6;
+      if (d.gobo === 1) { for(let i=0;i<6;i++){const a=i*Math.PI/3; c.beginPath(); c.arc(cx+Math.cos(a)*gs*0.5,gy+Math.sin(a)*gs*0.5,gs*0.18,0,Math.PI*2); c.fill();} }
+      else if (d.gobo === 2) { c.beginPath(); for(let i=0;i<8;i++){const a=i*Math.PI/4; const r2=i%2?gs*0.9:gs*0.35; c.lineTo(cx+Math.cos(a)*r2,gy+Math.sin(a)*r2);} c.closePath(); c.fill(); }
+      else if (d.gobo === 3) { c.fillRect(cx-gs*0.06,gy-gs*0.7,gs*0.12,gs*1.4); c.fillRect(cx-gs*0.7,gy-gs*0.06,gs*1.4,gs*0.12); }
+      else if (d.gobo === 4) { c.beginPath(); c.moveTo(cx,gy-gs*0.7); c.lineTo(cx+gs*0.6,gy+gs*0.5); c.lineTo(cx-gs*0.6,gy+gs*0.5); c.closePath(); c.fill(); }
+      else { c.beginPath(); for(let i=0;i<6;i++){const a=i*Math.PI/3; const ri=i%2?gs:gs*0.4; c.lineTo(cx+Math.cos(a)*ri,gy+Math.sin(a)*ri);} c.closePath(); c.fill(); }
+      c.globalAlpha = 1;
+    }
+
+    // Prism rainbow splits
+    const prismVal = pvd(selectedId, 'prism', 0);
+    if (prismVal > 0.5) {
+      const colors = ['#ff000030','#ff880030','#ffff0030','#00ff0030','#0088ff30','#8800ff30'];
+      colors.forEach((col, i) => {
+        const a = (i / 6) * Math.PI * 2 + performance.now() * 0.001;
+        const ox = Math.cos(a) * 8;
+        c.fillStyle = col;
+        c.beginPath();
+        c.moveTo(cx + ox - lensR*0.15, lensY);
+        c.lineTo(cx + ox - beamW*0.3, lensY - beamLen*0.8);
+        c.lineTo(cx + ox + beamW*0.3, lensY - beamLen*0.8);
+        c.lineTo(cx + ox + lensR*0.15, lensY);
+        c.closePath(); c.fill();
+      });
+    }
+
+    // Strobe flash
+    if (d.strobe > 2) {
+      const flash = Math.sin(performance.now() * d.strobe * 0.04) > 0.2;
+      if (flash) {
+        c.fillStyle = `rgba(255,255,255,${0.15 * d.dim})`;
+        c.fillRect(0, 0, w, h);
+      }
+    }
+  }
+
+  // ═══ LENS ═══
+  // Outer lens ring
+  c.beginPath(); c.arc(cx, lensY, lensR + 5, 0, Math.PI*2);
+  c.fillStyle = '#0a0e18'; c.fill();
+  c.strokeStyle = '#1a2540'; c.lineWidth = 2; c.stroke();
+
+  // Inner lens ring
+  c.beginPath(); c.arc(cx, lensY, lensR + 2, 0, Math.PI*2);
+  c.strokeStyle = '#2a3a58'; c.lineWidth = 1; c.stroke();
+
+  if (d.dim > 0.02) {
+    // Lens glass with color
+    const lGrd = c.createRadialGradient(cx - lensR*0.15, lensY - lensR*0.15, 0, cx, lensY, lensR);
+    lGrd.addColorStop(0, `rgba(${Math.min(255,rawR+40)},${Math.min(255,rawG+40)},${Math.min(255,rawB+40)},${0.6+d.dim*0.4})`);
+    lGrd.addColorStop(0.5, `rgba(${rawR},${rawG},${rawB},${0.4+d.dim*0.3})`);
+    lGrd.addColorStop(0.85, `rgba(${Math.round(rawR*0.6)},${Math.round(rawG*0.6)},${Math.round(rawB*0.6)},0.3)`);
+    lGrd.addColorStop(1, 'rgba(0,0,0,0.4)');
+    c.beginPath(); c.arc(cx, lensY, lensR, 0, Math.PI*2);
+    c.fillStyle = lGrd; c.fill();
+
+    // Gobo shadow on lens
+    if (d.gobo > 0) {
+      c.globalAlpha = 0.4;
+      c.fillStyle = '#000';
+      const gr = lensR * 0.7;
+      if (d.gobo === 1) { for(let i=0;i<6;i++){const a=i*Math.PI/3; c.beginPath(); c.arc(cx+Math.cos(a)*gr*0.4,lensY+Math.sin(a)*gr*0.4,gr*0.15,0,Math.PI*2); c.fill();} }
+      else if (d.gobo === 2) { c.beginPath(); for(let i=0;i<8;i++){const a=i*Math.PI/4; const r2=i%2?gr*0.8:gr*0.3; c.lineTo(cx+Math.cos(a)*r2,lensY+Math.sin(a)*r2);} c.closePath(); c.fill(); }
+      else if (d.gobo === 3) { c.fillRect(cx-gr*0.06,lensY-gr*0.7,gr*0.12,gr*1.4); c.fillRect(cx-gr*0.7,lensY-gr*0.06,gr*1.4,gr*0.12); }
+      else if (d.gobo === 4) { c.beginPath(); c.moveTo(cx,lensY-gr*0.7); c.lineTo(cx+gr*0.6,lensY+gr*0.5); c.lineTo(cx-gr*0.6,lensY+gr*0.5); c.closePath(); c.fill(); }
+      else { c.beginPath(); for(let i=0;i<6;i++){const a=i*Math.PI/3; const ri=i%2?gr:gr*0.35; c.lineTo(cx+Math.cos(a)*ri,lensY+Math.sin(a)*ri);} c.closePath(); c.fill(); }
+      c.globalAlpha = 1;
+    }
+
+    // Iris ring (visible when iris is closing)
+    if (d.iris > 5) {
+      const irisInner = lensR * (1 - d.iris/100 * 0.7);
+      c.strokeStyle = `rgba(${rawR},${rawG},${rawB},0.4)`;
+      c.lineWidth = 1.5;
+      c.beginPath(); c.arc(cx, lensY, irisInner, 0, Math.PI*2); c.stroke();
+      // Dark outside iris
+      c.globalAlpha = d.iris / 100 * 0.5;
+      c.fillStyle = '#000';
+      c.beginPath(); c.arc(cx, lensY, lensR, 0, Math.PI*2);
+      c.arc(cx, lensY, irisInner, 0, Math.PI*2, true);
+      c.fill();
+      c.globalAlpha = 1;
+    }
+
+    // Strobe flash on lens
+    if (d.strobe > 2) {
+      const flash = Math.sin(performance.now() * d.strobe * 0.04) > 0.2;
+      if (flash) {
+        c.beginPath(); c.arc(cx, lensY, lensR, 0, Math.PI*2);
+        c.fillStyle = `rgba(255,255,255,${0.35 * d.dim})`; c.fill();
+      }
+    }
+  } else {
+    // Off lens
+    c.beginPath(); c.arc(cx, lensY, lensR, 0, Math.PI*2);
+    c.fillStyle = '#080b14'; c.fill();
+  }
+
+  // Lens glass highlight (always visible)
+  c.beginPath(); c.arc(cx - lensR*0.25, lensY - lensR*0.25, lensR*0.12, 0, Math.PI*2);
+  c.fillStyle = 'rgba(255,255,255,0.08)'; c.fill();
+
+  c.setTransform(1,0,0,1,0,0);
+}
+
+// ─── Detail Panel ───
+function updateDetailPanel(fx) {
+  if (!fx) {
+    document.getElementById('no-select').style.display = 'flex';
+    document.getElementById('detail-content').style.display = 'none';
+    return;
+  }
+  document.getElementById('no-select').style.display = 'none';
+  document.getElementById('detail-content').style.display = 'flex';
+  document.getElementById('d-name').textContent = fx.name;
+  document.getElementById('d-type').textContent = (fx.type || '').replace(/_/g,' ');
+}
+
+function updateDetailLive(fx) {
+  if (!fx) return;
+  const d = getFixtureData(fx.id);
+
+  document.getElementById('d-dimmer').textContent = Math.round(d.dim * 100) + '%';
+  document.getElementById('d-dimmer').style.color = d.dim > 0 ? '#4a7adf' : '#1e2a40';
+  document.getElementById('d-color').style.background = d.dim > 0.02 ? d.hex : '#0a0c12';
+
+  drawMovingHead(d);
+
+  // Build param sections from embedded definitions + fixture type
+  const fxParams = getFixtureParams(fx);
+  const paramSet = new Set(fxParams);
+
+  const container = document.getElementById('d-param-sections');
+  container.innerHTML = '';
+
+  PARAM_GROUPS.forEach(group => {
+    // Filter to only params this fixture actually has
+    const activeParams = group.params.filter(p => paramSet.has(p.id));
+    if (!activeParams.length) return;
+
+    const div = document.createElement('div');
+    div.className = 'params-section';
+    div.innerHTML = `<div class="params-section-title" style="border-color:${group.color}22">${group.group}</div>`;
+    const grid = document.createElement('div');
+    grid.className = 'params-grid';
+
+    activeParams.forEach(p => {
+      const val = pv(fx.id, p.id);
+      const displayVal = val !== undefined ? (p.max <= 1 ? (val > 0.5 ? 'ON' : 'OFF') : Math.round(val)) : '—';
+      const active = val !== undefined && val > 0.5;
+      const range = p.max - p.min || 1;
+      const pct = val !== undefined ? Math.min(100, Math.max(0, ((val - p.min) / range) * 100)) : 0;
+      const box = document.createElement('div');
+      box.className = 'param-box' + (active ? ' active' : '');
+      box.innerHTML = `<div class="param-label" style="color:${p.color}88">${p.label}</div><div class="param-val${active?' active':''}">${displayVal}<span class="param-unit"> ${p.unit}</span></div><div class="param-bar"><div class="param-bar-fill" style="width:${pct}%;background:${p.color}99"></div></div>`;
+      grid.appendChild(box);
+    });
+
+    div.appendChild(grid);
+    container.appendChild(div);
+  });
+}
+
+// ─── Hit Testing ───
+let currentLayout = {positions:{}, radius:18};
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = canvas.width/rect.width, sy = canvas.height/rect.height;
+  const mx = (e.clientX-rect.left)*sx, my = (e.clientY-rect.top)*sy;
+  let hit = null;
+  fixtures.forEach(fx => {
+    const pos = currentLayout.positions[fx.id]; if (!pos) return;
+    if (Math.sqrt((mx-pos.x)**2+(my-pos.y)**2) <= pos.r + 6) hit = fx;
+  });
+  selectedId = hit ? hit.id : null;
+  updateDetailPanel(hit);
+});
+
+// ─── Render Loop ───
+function resize() {
+  const wrap = document.getElementById('stage-wrap');
+  canvas.width = wrap.clientWidth; canvas.height = wrap.clientHeight;
+}
+function frame() {
+  requestAnimationFrame(frame);
+  resize();
+  currentLayout = buildLayout(canvas.width, canvas.height);
+  drawStage(canvas.width, canvas.height, currentLayout);
+  if (selectedId) { const fx = fixtures.find(f=>f.id===selectedId); if (fx) updateDetailLive(fx); }
+  fpsCounter++;
+  const now = performance.now();
+  if (now - lastFpsTime > 1000) {
+    const fps = fpsCounter;
+    document.getElementById('f-fps').textContent = fps + ' fps';
+    document.getElementById('d-fps').textContent = fps + ' FPS';
+    fpsCounter = 0; lastFpsTime = now;
+  }
+}
+
+// ─── WebSocket ───
+function connect() {
+  const dot = document.getElementById('dot');
+  const st = document.getElementById('status-text');
+  dot.className = 'connecting'; st.textContent = 'connecting…';
+  ws = new WebSocket('ws://localhost:3457');
+  ws.onopen = () => { dot.className = 'live'; st.textContent = 'live'; };
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'viz_state') {
+        if (msg.fixtures) fixtures = msg.fixtures;
+        if (msg.live) live = msg.live;
+        // Sync fixture selection from main Lumina app
+        if (msg.selectedFixture && msg.selectedFixture !== selectedId) {
+          selectedId = msg.selectedFixture;
+          const fx = fixtures.find(f => f.id === selectedId);
+          updateDetailPanel(fx || null);
+        }
+        document.getElementById('f-fixtures').textContent = fixtures.length + ' fixture' + (fixtures.length!==1?'s':'');
+      }
+    } catch {}
+  };
+  ws.onclose = () => { dot.className=''; dot.style.background='#333'; st.textContent='disconnected — retrying…'; setTimeout(connect,2000); };
+  ws.onerror = () => ws.close();
+}
+
+connect(); frame();
+</script>
+</body>
+</html>

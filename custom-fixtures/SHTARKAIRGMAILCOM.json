@@ -1,0 +1,22 @@
+{
+  "channels": 4,
+  "map": {
+    "dimmer": {
+      "offset": 0,
+      "bits": 8
+    },
+    "tilt": {
+      "offset": 1,
+      "bits": 8
+    },
+    "cyan": {
+      "offset": 2,
+      "bits": 8
+    },
+    "pan": {
+      "offset": 3,
+      "bits": 8
+    }
+  },
+  "color": "#ff5544"
+}

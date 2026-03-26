@@ -1,0 +1,90 @@
+{
+  "channels": 33,
+  "map": {
+    "pan": {
+      "offset": 20,
+      "bits": 8
+    },
+    "tilt": {
+      "offset": 21,
+      "bits": 8
+    },
+    "strobe": {
+      "offset": 3,
+      "bits": 8
+    },
+    "dimmer": {
+      "offset": 4,
+      "bits": 8
+    },
+    "zoom": {
+      "offset": 8,
+      "bits": 8
+    },
+    "focus": {
+      "offset": 9,
+      "bits": 8
+    },
+    "colorwheel": {
+      "offset": 12,
+      "bits": 8
+    },
+    "cyan": {
+      "offset": 13,
+      "bits": 8
+    },
+    "magenta": {
+      "offset": 14,
+      "bits": 8
+    },
+    "yellow": {
+      "offset": 15,
+      "bits": 8
+    },
+    "cto": {
+      "offset": 16,
+      "bits": 8
+    },
+    "gobo_a": {
+      "offset": 17,
+      "bits": 8
+    },
+    "gobo_a_rot": {
+      "offset": 18,
+      "bits": 8
+    },
+    "prism": {
+      "offset": 21,
+      "bits": 8
+    },
+    "prism_rot": {
+      "offset": 22,
+      "bits": 8
+    },
+    "frost": {
+      "offset": 23,
+      "bits": 8
+    },
+    "blade_a": {
+      "offset": 24,
+      "bits": 8
+    },
+    "blade_b": {
+      "offset": 25,
+      "bits": 8
+    },
+    "blade_c": {
+      "offset": 26,
+      "bits": 8
+    },
+    "blade_d": {
+      "offset": 27,
+      "bits": 8
+    },
+    "blade_rot": {
+      "offset": 32,
+      "bits": 8
+    }
+  },
+  "color": "#ffaa44"
+}
