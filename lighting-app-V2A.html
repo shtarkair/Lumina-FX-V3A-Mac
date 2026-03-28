@@ -380,7 +380,9 @@ function buildCurvePath(cue, w, h) {
 // Memoized beat grid lines — avoids recreating 65 divs per lane per render
 const BeatGrid = React.memo(function BeatGrid({ totalBeats, beatWidth }) {
   return Array.from({length:totalBeats+1}).map((_,i)=>(
-    <div key={i} style={{position:"absolute",top:0,left:i*beatWidth,width:i%4===0?2:1,height:"100%",background:i%16===0?"#4488ff44":i%4===0?"#4488ff22":"#1e2230",pointerEvents:"none"}}/>
+    <div key={i} style={{position:"absolute",top:0,left:i*beatWidth,width:1,height:"100%",
+      background:i%16===0?"rgba(255,255,255,0.13)":i%4===0?"rgba(255,255,255,0.06)":"rgba(255,255,255,0.025)",
+      pointerEvents:"none"}}/>
   ));
 });
 
@@ -3915,17 +3917,17 @@ function LightingTimeline() {
         <div style={{width:60}}><GlowSlider min={0.3} max={3} step={0.05} value={zoom} onChange={setZoom} color="#cc9944" ticks={5} label="ZOOM" midiId="zoom"/></div>
       </div>
 
-      {!playMode && <div style={{display:"flex",alignItems:"stretch",background:"#14121a",borderBottom:"1px solid #2a2040"}}>
+      {!playMode && <div style={{display:"flex",alignItems:"stretch",background:"#0a0a0e",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
         <div style={{flex:1}}><AudioControlBar audioMode={audioMode} setAudioMode={setAudioMode} audioFileName={audioFileName} audioLevel={audioLevel} beatDetected={beatDetected} detectedBpm={detectedBpm} audioVolume={audioVolume} setAudioVolume={setAudioVolume} audioMuted={audioMuted} setAudioMuted={setAudioMuted} onFileLoad={f=>audioEngine.loadFile(f)} bpm={bpm} setBpm={setBpm}/></div>
       </div>}
 
-      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-        <div onMouseDown={()=>setRightPanelWide(false)} onTouchStart={()=>setRightPanelWide(false)} style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>setScrollLeft(e.target.scrollLeft)} style={{flex:1,overflow:"auto",position:"relative",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
+      <div style={{display:"flex",flex:1,overflow:"hidden",padding:"0 6px 0 6px"}}>
+        <div onMouseDown={()=>setRightPanelWide(false)} onTouchStart={()=>setRightPanelWide(false)} style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
+        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>setScrollLeft(e.target.scrollLeft)} style={{flex:1,overflow:"auto",position:"relative",background:"#000",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
           <div style={{width:LABEL_W+PARAM_LABEL_W+totalW,minHeight:(RULER_H+(waveformPeaks?40:0))+totalH}}>
-            <div style={{position:"sticky",top:0,zIndex:20,width:LABEL_W+PARAM_LABEL_W+totalW,background:"#161a28",borderBottom:"1px solid #1e2a44"}}>
+            <div style={{position:"sticky",top:0,zIndex:20,width:LABEL_W+PARAM_LABEL_W+totalW,background:"#000",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
               <div style={{height:RULER_H,display:"flex"}}>
-                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid #252930",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:8,color:"#2a2e38",letterSpacing:2}}><button onClick={()=>{const allExpanded=fixtures.every(fx=>expandedFixtures.has(fx.id));if(allExpanded){setExpandedFixtures(new Set());setExpandedGroups(new Set());}else{setExpandedFixtures(new Set(fixtures.map(fx=>fx.id)));setExpandedGroups(new Set(fixtures.flatMap(fx=>PARAM_GROUPS.map(g=>fx.id+"-"+g.group))));}}} style={{background:"none",border:"1px solid #2a2e3844",color:"#555",borderRadius:3,cursor:"pointer",fontSize:10,padding:"2px 6px",touchAction:"manipulation",minHeight:24}} title="Collapse/Expand all">{fixtures.every(fx=>expandedFixtures.has(fx.id))?"\u25BC":"\u25B6"}</button><span>FIXTURE {"\u00BB"} PARAMETER</span></div>
+                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:8,color:"rgba(255,255,255,0.2)",letterSpacing:2}}><button onClick={()=>{const allExpanded=fixtures.every(fx=>expandedFixtures.has(fx.id));if(allExpanded){setExpandedFixtures(new Set());setExpandedGroups(new Set());}else{setExpandedFixtures(new Set(fixtures.map(fx=>fx.id)));setExpandedGroups(new Set(fixtures.flatMap(fx=>PARAM_GROUPS.map(g=>fx.id+"-"+g.group))));}}} style={{background:"none",border:"1px solid #2a2e3844",color:"#555",borderRadius:3,cursor:"pointer",fontSize:10,padding:"2px 6px",touchAction:"manipulation",minHeight:24}} title="Collapse/Expand all">{fixtures.every(fx=>expandedFixtures.has(fx.id))?"\u25BC":"\u25B6"}</button><span>FIXTURE {"\u00BB"} PARAMETER</span></div>
                 <div style={{position:"relative",flex:1,cursor:rulerTapJump?"pointer":"default"}} onClick={e=>{if(!rulerTapJump)return;const rect=e.currentTarget.getBoundingClientRect();const x=e.clientX-rect.left;const beat=Math.max(0,xToBeat(x));const snapped=snapToGrid?Math.round(beat):beat;playheadRef.current=snapped;setDisplayPlayhead(snapped);if(audioMode==="file"&&playing)audioEngine.seekTo(snapped);}}>
                   {loopEnabled&&<>
                     <div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.07)",pointerEvents:"none"}}/>
@@ -3944,7 +3946,13 @@ function LightingTimeline() {
                     </div>
                   ))}
                   {Array.from({length:TOTAL_BEATS+1}).map((_,i)=>i%4===0&&(
-                    <div key={i} style={{position:"absolute",top:0,left:beatToX(i),height:"100%",borderLeft:i%4===0?`2px solid ${i%16===0?"#4488ffcc":"#4488ff66"}`:"1px solid #2a3040",paddingLeft:3,paddingTop:i%16===0?5:10,fontSize:i%16===0?10:8,color:i%16===0?"#4488ff":"#888",fontWeight:i%16===0?"bold":"normal"}}>
+                    <div key={i} style={{position:"absolute",top:0,left:beatToX(i),height:"100%",
+                      borderLeft:i%16===0?"1px solid rgba(255,255,255,0.18)":"1px solid rgba(255,255,255,0.07)",
+                      paddingLeft:3,paddingTop:i%16===0?5:10,
+                      fontSize:i%16===0?10:8,
+                      color:i%16===0?"rgba(255,255,255,0.75)":"rgba(255,255,255,0.3)",
+                      fontWeight:i%16===0?"bold":"normal",
+                      letterSpacing:i%16===0?0.5:0}}>
                       {i%16===0?`\u266B${Math.floor(i/4)+1}`:`${Math.floor(i/4)+1}`}
                     </div>
                   ))}
@@ -3953,8 +3961,8 @@ function LightingTimeline() {
                   </div>
                 </div>
               </div>
-              {waveformPeaks&&<div style={{height:40,background:'#0a0c10',borderTop:'1px solid #1e222a',display:'flex'}}>
-                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:'1px solid #1e222a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:7,color:'#2a2e38',letterSpacing:1}}>{"\u266A"} WAVEFORM</div>
+              {waveformPeaks&&<div style={{height:40,background:'#000',borderTop:'1px solid rgba(255,255,255,0.06)',display:'flex'}}>
+                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:7,color:'rgba(255,255,255,0.18)',letterSpacing:1}}>{"\u266A"} WAVEFORM</div>
                 <div style={{position:'relative',flex:1,overflow:'hidden'}}>
                   <WaveformCanvas peaks={waveformPeaks} durationBeats={audioDurationBeats} beatWidth={BEAT_WIDTH} zoom={zoom} scrollLeft={scrollLeft} width={Math.max(100,totalW)} height={40} playhead={displayPlayhead} loopStart={loopStart} loopEnd={loopEnd} loopEnabled={loopEnabled}/>
                 </div>
@@ -3968,18 +3976,18 @@ function LightingTimeline() {
                 const hasActive=Object.entries(liveValues).some(([k,v])=>k.startsWith(fx.id+"-")&&v>0);
                 const isFxSel=fxSelectedFixtures.has(fx.id);
                 return(
-                  <div key={`fx-${fx.id}`} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#1a2238",borderBottom:"1px solid #2a3a55",zIndex:6}}>
-                    <div onClick={()=>toggleFixture(fx.id)} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid #3a4050",display:"flex",alignItems:"center",padding:"0 8px",gap:7,cursor:"pointer"}}>
+                  <div key={`fx-${fx.id}`} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#0c0c10",borderBottom:"1px solid rgba(255,255,255,0.07)",zIndex:6}}>
+                    <div onClick={()=>toggleFixture(fx.id)} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 8px",gap:7,cursor:"pointer"}}>
                       <span style={{fontSize:8,color:isFxSel?fx.color:"#555"}}>{isExp?"\u25BC":"\u25B6"}</span>
                       <div style={{width:10,height:10,borderRadius:"50%",background:hasActive?fx.color:"#252930",boxShadow:hasActive?`0 0 10px ${fx.color}`:"none",transition:"all 0.05s"}}/>
                       <div>
-                        <div style={{fontSize:11,color:isFxSel?fx.color:"#d0d6e0",fontWeight:"bold"}}>{fx.name}</div>
-                        <div style={{fontSize:8,color:isFxSel?fx.color+"88":"#3a3f4c"}}>{fx.type}</div>
+                        <div style={{fontSize:11,color:isFxSel?fx.color:"rgba(255,255,255,0.85)",fontWeight:"bold"}}>{fx.name}</div>
+                        <div style={{fontSize:8,color:isFxSel?fx.color+"88":"rgba(255,255,255,0.2)"}}>{fx.type}</div>
                       </div>
                       <div style={{flex:1}}/>
-                      <div style={{fontSize:8,color:"#333"}}>{(cueIndex&&cueIndex._fxCounts&&cueIndex._fxCounts.get(fx.id))||0}c</div>
+                      <div style={{fontSize:8,color:"rgba(255,255,255,0.18)"}}>{(cueIndex&&cueIndex._fxCounts&&cueIndex._fxCounts.get(fx.id))||0}c</div>
                     </div>
-                    <div style={{flex:1,background:"#1c2030",position:"relative"}}>
+                    <div style={{flex:1,background:"#050508",position:"relative"}}>
                       {isFxSel&&(()=>{const fxL=fxStart*bw-scrollLeft;const fxR=fxEnd*bw-scrollLeft;const clL=Math.max(0,fxL);const clR=Math.min(totalW,fxR);if(clR<=clL)return null;return <div style={{position:"absolute",left:clL,top:0,width:clR-clL,height:"100%",background:fx.color+"18",borderLeft:`1px solid ${fx.color}44`,borderRight:`1px solid ${fx.color}44`,pointerEvents:"none"}}/>})()}
                     </div>
                   </div>
@@ -3989,14 +3997,14 @@ function LightingTimeline() {
                 const gk=`${row.fixtureId}-${row.groupId}`;
                 const isExp=expandedGroups.has(gk);
                 return(
-                  <div key={gk} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#1a1e2a",borderBottom:"1px solid #2a3040",zIndex:5}}>
-                    <div onClick={()=>toggleGroup(gk)} onDoubleClick={e=>{e.stopPropagation();const paramIds=new Set(row.group.params.map(p=>p.id));const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&paramIds.has(c.param)).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(row.group.color);}}} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid #2a3040",display:"flex",alignItems:"center",padding:"0 8px 0 24px",gap:6,cursor:"pointer"}}>
-                      <span style={{fontSize:7,color:"#444"}}>{isExp?"\u25BC":"\u25B6"}</span>
+                  <div key={gk} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#080810",borderBottom:"1px solid rgba(255,255,255,0.04)",zIndex:5}}>
+                    <div onClick={()=>toggleGroup(gk)} onDoubleClick={e=>{e.stopPropagation();const paramIds=new Set(row.group.params.map(p=>p.id));const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&paramIds.has(c.param)).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(row.group.color);}}} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",padding:"0 8px 0 24px",gap:6,cursor:"pointer"}}>
+                      <span style={{fontSize:7,color:"rgba(255,255,255,0.2)"}}>{isExp?"\u25BC":"\u25B6"}</span>
                       <div style={{width:12,height:2,borderRadius:1,background:row.group.color,opacity:0.6}}/>
                       <span style={{fontSize:9,color:row.group.color,opacity:0.75,letterSpacing:1.5}}>{row.group.group}</span>
-                      <span style={{fontSize:7,color:"#333",marginLeft:"auto"}}>{row.group.params.length} params</span>
+                      <span style={{fontSize:7,color:"rgba(255,255,255,0.15)",marginLeft:"auto"}}>{row.group.params.length} params</span>
                     </div>
-                    <div style={{flex:1,background:"#161a26"}}/>
+                    <div style={{flex:1,background:"#030306"}}/>
                   </div>
                 );
               }
@@ -4010,24 +4018,24 @@ function LightingTimeline() {
                 const floorVal=paramFloors[laneKey]||0;
                 const hasFloor=floorVal>0;
                 return(
-                  <div key={laneKey} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:isMuted?"#12141a":ri%2===0?"#141828":"#161a2c",borderBottom:"1px solid #1e2840"}}>
-                    <div style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid #1a1e26"}}/>
-                    <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid #1e222a",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
+                  <div key={laneKey} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:isMuted?"#0d0d10":ri%2===0?"#000":"#06060a",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                    <div style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)"}}/>
+                    <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
                       <div style={{width:3,height:20,borderRadius:1,background:param.color,opacity:isMuted?0.25:0.8,flexShrink:0}}/>
                       <div onClick={e=>{e.stopPropagation();const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&c.param===row.paramId).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(param.color);}}} style={{flex:1,minWidth:0,opacity:isMuted?0.35:1,cursor:"pointer"}}>
-                        <div style={{fontSize:9,color:"#ccc",whiteSpace:"nowrap",overflow:"hidden"}}>{param.label}</div>
-                        <div style={{fontSize:7,color:"#556070"}}>{param.min}-{param.max}{param.unit}</div>
+                        <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap",overflow:"hidden"}}>{param.label}</div>
+                        <div style={{fontSize:7,color:"rgba(255,255,255,0.22)"}}>{param.min}-{param.max}{param.unit}</div>
                       </div>
                       <div onClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'param_floor',laneKey,paramMin:param.min,paramMax:param.max,value:String(floorVal),rect:{top:r.bottom+2,left:r.left},dirty:false});}} style={{padding:"1px 3px",fontSize:8,fontWeight:"bold",background:hasFloor?"#44aaff18":"transparent",border:hasFloor?"1px solid #44aaff44":"1px solid #334",color:hasFloor?"#44aaff":"#667",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,minWidth:18,textAlign:"center"}} title="Floor value (minimum output)">{hasFloor?floorVal:"F"}</div>
                       <button onClick={toggleMute} style={{padding:"1px 4px",fontSize:8,fontWeight:"bold",background:isMuted?"#ff440033":"transparent",border:isMuted?"1px solid #ff440066":"1px solid #334",color:isMuted?"#ff6633":"#778",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,letterSpacing:0.5}}>M</button>
-                      <div style={{fontSize:10,fontWeight:"bold",color:isMuted?"#ff440066":liveVal!==undefined?"#4488ff":"#445060",minWidth:28,textAlign:"right",flexShrink:0,transition:"color 0.1s"}}>
+                      <div style={{fontSize:10,fontWeight:"bold",color:isMuted?"#ff440066":liveVal!==undefined?"#4488ff":"rgba(255,255,255,0.15)",minWidth:28,textAlign:"right",flexShrink:0,transition:"color 0.1s"}}>
                         {isMuted?"M":liveVal!==undefined?Math.round(liveVal):"\u2014"}
                       </div>
                     </div>
                     <div style={{position:"relative",flex:1,height:"100%",overflow:"hidden"}}>
                       <BeatGrid totalBeats={TOTAL_BEATS} beatWidth={bw}/>
-                      {loopEnabled&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.03)",pointerEvents:"none"}}/>}
-                      {rightTab==="fx"&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(fxStart),width:beatToX(fxEnd-fxStart),background:"rgba(187,68,255,0.03)",pointerEvents:"none"}}/>}
+                      {loopEnabled&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.05)",pointerEvents:"none"}}/>}
+                      {rightTab==="fx"&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(fxStart),width:beatToX(fxEnd-fxStart),background:"rgba(187,68,255,0.05)",pointerEvents:"none"}}/>}
                       {isMuted&&<div style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",background:"repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(255,68,0,0.03) 8px,rgba(255,68,0,0.03) 16px)",pointerEvents:"none",zIndex:4}}/>}
                       {laneCues.map(cue=>{
                         const isCueMuted=cue.muted===true;
