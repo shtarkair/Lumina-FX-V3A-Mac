@@ -560,6 +560,23 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
   const toggleFx = id => setSelFixtures(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const selAll = () => setSelFixtures(new Set(fixtures.map(f => f.id)));
   const selNone = () => setSelFixtures(new Set());
+  // Listen for fixture taps from viz window via BroadcastChannel
+  useEffect(()=>{
+    const ch=new BroadcastChannel('lumina-viz');
+    ch.onmessage=(e)=>{
+      if(e.data&&e.data.type==='fixture-tap'){
+        const fxId=e.data.fixtureId;
+        if(e.data.shift){
+          // shift+click: toggle single fixture
+          setSelFixtures(prev=>{const s=new Set(prev);s.has(fxId)?s.delete(fxId):s.add(fxId);return s;});
+        } else {
+          // plain click: solo select this fixture
+          setSelFixtures(new Set([fxId]));
+        }
+      }
+    };
+    return ()=>ch.close();
+  },[]);
   const [fxPickerOpen, setFxPickerOpen] = useState(false);
   const [fxPickerPos, setFxPickerPos] = useState({x:0,y:0});
   const [fxPickerShowIndiv, setFxPickerShowIndiv] = useState(false);
@@ -2159,6 +2176,25 @@ function LightingTimeline() {
   const selectedCuesRef = useRef(new Set());
   useEffect(() => { selectedCuesRef.current = selectedCues; }, [selectedCues]);
   const [boxSelect,setBoxSelect] = useState(null);
+  const [addSelectMode,setAddSelectMode] = useState(false); // persistent add mode
+  const [addOnceMode,setAddOnceMode] = useState(false); // single-shot add mode
+  const addSelectRef = useRef(false);
+  const addOnceRef = useRef(false);
+  useEffect(()=>{addSelectRef.current=addSelectMode||addOnceMode; addOnceRef.current=addOnceMode;},[addSelectMode,addOnceMode]);
+  // Track the order cues were selected (for FAN ordering)
+  const selectionOrderRef = useRef([]);
+  // Keep selectionOrder in sync: remove IDs no longer in selectedCues, keep order for existing ones
+  useEffect(()=>{
+    const cur=selectionOrderRef.current;
+    const kept=cur.filter(id=>selectedCues.has(id));
+    // Add any new IDs not yet in order (e.g. from box-select, sorted by beat as default)
+    const missing=[...selectedCues].filter(id=>!kept.includes(id));
+    if(missing.length>0){
+      const cueMap={};cues.forEach(c=>{cueMap[c.id]=c;});
+      missing.sort((a,b)=>(cueMap[a]?.beat||0)-(cueMap[b]?.beat||0));
+    }
+    selectionOrderRef.current=[...kept,...missing];
+  },[selectedCues,cues]);
   const [dragging,setDragging] = useState(null);
   const [resizing,setResizing] = useState(null);
   const [tool,setTool] = useState("select");
@@ -2220,7 +2256,76 @@ function LightingTimeline() {
   const [fxGhostCues, setFxGhostCues] = useState([]);
   const [copyMode,setCopyMode] = useState(false);
   const [splitMode,setSplitMode] = useState(false);
+  const [timeSliderOpen,setTimeSliderOpen] = useState(false);
+  const [timeScaleVal,setTimeScaleVal] = useState(50); // 0-100, 50=no change
+  const [copyFxPicker,setCopyFxPicker] = useState(null); // null or {srcCues, targets, selected:Set}
+  // Time scale preview ghost cues
+  const timeGhostCues = useMemo(()=>{
+    if(!timeSliderOpen||timeScaleVal===50||selectedCues.size===0) return [];
+    const t=timeScaleVal/50-1; // -1 to +1
+    let scale;
+    if(t<0) scale=1+(-t)*4; // slower
+    else scale=1/(1+t*4);   // faster
+    const sel=cues.filter(c=>selectedCues.has(c.id));
+    if(sel.length===0) return [];
+    const minBeat=Math.min(...sel.map(c=>c.beat));
+    return sel.map(c=>({...c,id:"tg-"+c.id,beat:minBeat+(c.beat-minBeat)*scale}));
+  },[timeSliderOpen,timeScaleVal,selectedCues,cues]);
+  const [fanSliderOpen,setFanSliderOpen] = useState(false);
+  const [fanVal,setFanVal] = useState(50); // 0-100, 50=no change, 100=fan min→max, 0=reverse fan
+  const [fanDir,setFanDir] = useState(">>"); // ">>" left→right, "<<" right→left, "><" edges→center, "<>" center→edges
+  // Helper: compute fan t value based on direction: ">>" linear spread, "><" center spread
+  const fanT=(i,n,dir)=>{if(n<2)return 0;const lin=i/(n-1);if(dir==="><")return 1-Math.abs(2*lin-1);return lin;};
+  useEffect(()=>{window.__LUM={setSelectedCues,setFanSliderOpen,setFanVal,setFanDir,cues,fixtures,selectedCues,setPopupPos,setCues};},[cues,fixtures,selectedCues]);
+  // Fan preview ghost cues
+  const fanGhostCues = useMemo(()=>{
+    if(!fanSliderOpen||fanVal===50||selectedCues.size===0) return [];
+    const sel=cues.filter(c=>selectedCues.has(c.id));
+    if(sel.length<2) return [];
+    const amt=(fanVal-50)/50; // -1 to +1
+    const fxIdx={};fixtures.forEach((fx,i)=>{fxIdx[fx.id]=i;});
+    const groups={};
+    sel.forEach(c=>{if(!groups[c.param])groups[c.param]=[];groups[c.param].push(c);});
+    const result=[];
+    Object.values(groups).forEach(g=>{
+      const p=getParam(g[0].param);
+      if(!p){g.forEach(c=>result.push({...c,id:"fg-"+c.id}));return;}
+      const uniqFx=[...new Set(g.map(c=>c.fixtureId))].sort((a,b)=>(fxIdx[a]??0)-(fxIdx[b]??0));
+      if(uniqFx.length<2){g.forEach(c=>result.push({...c,id:"fg-"+c.id}));return;}
+      // Work in DMX space (0-255) for consistent spread across all param types
+      const toDmx=v=>((v-p.min)/(p.max-p.min))*255;
+      const toNative=d=>(d/255)*(p.max-p.min)+p.min;
+      const fxFanT={};
+      if(fanDir==="><"){
+        // CENTER mode: symmetric spread — center fixture stays, edges deviate equally
+        uniqFx.forEach((fId,i)=>{const lin=uniqFx.length>1?(2*i/(uniqFx.length-1)-1):0;fxFanT[fId]=Math.sign(lin)*lin*lin;});
+        g.forEach(c=>{
+          const signed=fxFanT[c.fixtureId]??0; // quadratic -1 to +1
+          const dmxOrig=toDmx(c.value);
+          const maxDev=Math.min(dmxOrig,255-dmxOrig); // symmetric headroom
+          const offset=signed*maxDev*amt;
+          const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+          const clamped=Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))));
+          result.push({...c,id:"fg-"+c.id,value:clamped});
+        });
+      } else {
+        // SPREAD mode: >> = last fixture stays, << = first fixture stays
+        uniqFx.forEach((fId,i)=>{fxFanT[fId]=uniqFx.length>1?(fanDir==="<<"?i/(uniqFx.length-1):1-i/(uniqFx.length-1)):0;});
+        g.forEach(c=>{
+          const dev=fxFanT[c.fixtureId]??0; // 1=most change, 0=anchor
+          const dmxOrig=toDmx(c.value);
+          const maxDev=amt>0?dmxOrig:255-dmxOrig;
+          const offset=-dev*maxDev*amt;
+          const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+          const clamped=Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))));
+          result.push({...c,id:"fg-"+c.id,value:clamped});
+        });
+      }
+    });
+    return result;
+  },[fanSliderOpen,fanVal,fanDir,selectedCues,cues]);
   const [copiedCues,setCopiedCues] = useState(null);
+  const [gotoPrompt,setGotoPrompt] = useState(false); // show keep-gaps YES/NO
   const [mutedLanes,setMutedLanes] = useState(new Set());
   const [paramFloors,setParamFloors] = useState(()=>{ try { return JSON.parse(localStorage.getItem("lumina-param-floors")) || {}; } catch(e) { return {}; } });
   useEffect(()=>{ localStorage.setItem("lumina-param-floors", JSON.stringify(paramFloors)); },[paramFloors]);
@@ -3115,7 +3220,7 @@ function LightingTimeline() {
       return;
     }
     if(tool==="erase"||tool==="select"){
-      setSelectedCue(null);setSelectedCues(new Set());
+      if(!addSelectRef.current){setSelectedCue(null);setSelectedCues(new Set());}
       setBoxSelect({startX:x,startY:y,curX:x,curY:y});
       return;
     }
@@ -3163,6 +3268,17 @@ function LightingTimeline() {
     }
     if(tool==="erase"){setCues(prev=>prev.filter(c=>c.id!==cue.id));return;}
     const wasAlreadySelected = selectedCues.has(cue.id);
+    // Add-select mode: toggle cue in/out of selection
+    if(addSelectMode||addOnceMode){
+      setSelectedCues(prev=>{
+        const s=new Set(prev);
+        if(s.has(cue.id)){s.delete(cue.id);}else{s.add(cue.id);}
+        return s;
+      });
+      if(!wasAlreadySelected) setPopupPos({x:e.clientX,y:e.clientY});
+      if(addOnceMode) setAddOnceMode(false);
+      return;
+    }
     setSelectedCue(cue.id);
     if(!wasAlreadySelected) setPopupPos({x:e.clientX,y:e.clientY});
     if(e.target.dataset.resize){
@@ -3246,10 +3362,15 @@ function LightingTimeline() {
           setCues(prev=>prev.filter(c=>!sel.has(c.id)));
           setSelectedCues(new Set());setSelectedCue(null);
         } else {
-          setSelectedCues(sel);
-          if(sel.size===1) setSelectedCue([...sel][0]);
+          if(addSelectRef.current){
+            setSelectedCues(prev=>{const merged=new Set(prev);sel.forEach(id=>merged.add(id));return merged;});
+            if(addOnceRef.current) setAddOnceMode(false);
+          } else {
+            setSelectedCues(sel);
+          }
+          if(sel.size===1&&!addSelectRef.current) setSelectedCue([...sel][0]);
           if(sel.size>0) setPopupPos({x:e.clientX,y:e.clientY});
-          else { setSelectedCue(null); setPopupPos(null); }
+          else if(!addSelectRef.current){ setSelectedCue(null); setPopupPos(null); }
         }
         setBoxSelect(null);
       }
@@ -3267,7 +3388,7 @@ function LightingTimeline() {
       if(e.key==="Shift"&&!shiftTimerRef.current){
         shiftTimerRef.current=setTimeout(()=>{setCopyMode(true);},2000);
       }
-      if(e.key==="Escape"){setCopyMode(false);setCopiedCues(null);setSplitMode(false);setSelectedCues(new Set());setSelectedCue(null);setPopupPos(null);}
+      if(e.key==="Escape"){setCopyMode(false);setCopiedCues(null);setSplitMode(false);setSelectedCues(new Set());setSelectedCue(null);setPopupPos(null);setAddSelectMode(false);setAddOnceMode(false);}
       if((e.key==="Delete"||e.key==="Backspace")&&!e.target.closest("input")){
         e.preventDefault();
         if(selectedCues.size>0){setCues(prev=>prev.filter(c=>!selectedCues.has(c.id)));setSelectedCues(new Set());setSelectedCue(null);}
@@ -3318,7 +3439,25 @@ function LightingTimeline() {
   const selCue=selectedCue?cues.find(c=>c.id===selectedCue):(multiSel.length>0?multiSel[0]:null);
   const selParam=selCue?getParam(selCue.param):null;
   const editIds=selectedCues.size>0?selectedCues:selCue?new Set([selCue.id]):new Set();
-  const updateCue=(key,val)=>setCues(prev=>prev.map(c=>editIds.has(c.id)?{...c,[key]:val}:c));
+  const [relativeMode,setRelativeMode] = useState(false);
+  const relBaseRef = useRef({}); // stores original values when relative drag starts
+  const updateCue=(key,val)=>{
+    if(relativeMode&&editIds.size>1){
+      // Relative: apply delta from the reference cue's original value
+      const base=relBaseRef.current[key];
+      if(base===undefined){relBaseRef.current[key]=selCue?selCue[key]:val;}
+      const delta=val-(relBaseRef.current[key]??val);
+      setCues(prev=>prev.map(c=>{
+        if(!editIds.has(c.id))return c;
+        const p=getParam(c.param);
+        const clamped=Math.max(p?p.min:0,Math.min(p?p.max:9999,c[key]+delta));
+        return{...c,[key]:Math.round(clamped*100)/100};
+      }));
+      relBaseRef.current[key]=val;
+    } else {
+      setCues(prev=>prev.map(c=>editIds.has(c.id)?{...c,[key]:val}:c));
+    }
+  };
 
   const reverseActionMap=useMemo(()=>{const r={};Object.entries(midiMap).forEach(([key,val])=>{if(typeof val==="string"&&val.startsWith("act:"))r[val]=key;});return r;},[midiMap]);
   const NOTE_NAMES_APP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -3335,28 +3474,39 @@ function LightingTimeline() {
         <div style={{background:"#0a0c10f0",border:"1px solid #e8aa2244",borderRadius:10,padding:"10px",display:"flex",flexDirection:"column",gap:6,boxShadow:"0 6px 30px rgba(0,0,0,0.7)",width:PW}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:11,color:"#e8aa22",fontWeight:"bold",letterSpacing:1}}>{selectedCues.size} SELECTED</span>
-            <button onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>{setPopupPos(null);}} style={{background:"#1c1016",border:"1px solid #ff444444",color:"#ff6666",cursor:"pointer",fontSize:12,padding:"2px 8px",borderRadius:4,fontWeight:"bold",minWidth:28,minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+              <button onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>{setAddOnceMode(prev=>!prev);if(!addOnceMode)setAddSelectMode(false);}} style={{background:addOnceMode?"#1a1a2a":"#111218",border:`1px solid ${addOnceMode?"#e8aa2288":"#333"}`,color:addOnceMode?"#e8aa22":"#888",cursor:"pointer",fontSize:9,padding:"2px 6px",borderRadius:4,fontWeight:"bold",minWidth:28,minHeight:28,display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:0.5,transition:"all 0.15s",boxShadow:addOnceMode?"0 0 8px #e8aa2222":"none"}}>+1</button>
+              <button onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>{setAddSelectMode(prev=>!prev);if(!addSelectMode)setAddOnceMode(false);}} style={{background:addSelectMode?"#1a2a10":"#111218",border:`1px solid ${addSelectMode?"#44cc4488":"#333"}`,color:addSelectMode?"#44cc44":"#888",cursor:"pointer",fontSize:10,padding:"2px 8px",borderRadius:4,fontWeight:"bold",minWidth:28,minHeight:28,display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:0.5,transition:"all 0.15s",boxShadow:addSelectMode?"0 0 8px #44cc4422":"none"}}>ADD+</button>
+              <button onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>{setPopupPos(null);setAddSelectMode(false);setAddOnceMode(false);}} style={{background:"#1c1016",border:"1px solid #ff444444",color:"#ff6666",cursor:"pointer",fontSize:12,padding:"2px 8px",borderRadius:4,fontWeight:"bold",minWidth:28,minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
+            </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
+          {!timeSliderOpen&&!fanSliderOpen&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
             {[
               /* Row 1: SEL FIX white, HALF green, DUP orange, DELETE red */
               {label:"\u25A8",sub:"SEL FIX",mid:"pad-selfix",color:"#ffffff",action:()=>{if(selectedCues.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const fxIds=new Set(sel.map(c=>c.fixtureId));const newSel=new Set();cues.forEach(c=>{if(fxIds.has(c.fixtureId)&&params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},need:0},
-              {label:"\u23EA",sub:"HALF",mid:"pad-half",color:"#44cc44",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const minBeat=Math.min(...sel.map(c=>c.beat));const ids=new Set(sel.map(c=>c.id));return prev.map(c=>ids.has(c.id)?{...c,beat:minBeat+(c.beat-minBeat)*2}:c);},"half time");},need:1},
+              {label:"\u29D6",sub:"TIME",mid:"pad-time",color:"#44cc44",action:()=>{setTimeSliderOpen(prev=>{if(!prev)setTimeScaleVal(50);return!prev;});},need:1},
               {label:"\u29C9",sub:"DUP",mid:"pad-dup",color:"#ff8844",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));const maxBeat=Math.max(...sel.map(c=>c.beat+c.duration));const minBeat=Math.min(...sel.map(c=>c.beat));const offset=maxBeat-minBeat;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+offset}));return[...prev,...newCues];},"duplicate cues");setSelectedCues(new Set());},need:1},
               {label:"\u2716",sub:"DELETE",mid:"pad-delete",color:"#ff4444",action:()=>{setCues(prev=>prev.filter(c=>!selectedCues.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},need:1},
               /* Row 2: SEL ALL white, DOUBLE green, DUP FX orange, REVERSE blue */
               {label:"\u25A8",sub:"SEL ALL",mid:"pad-selall",color:"#ffffff",action:()=>{if(selectedCues.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const newSel=new Set();cues.forEach(c=>{if(params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},need:0},
-              {label:"\u23E9",sub:"DOUBLE",mid:"pad-double",color:"#44cc44",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const minBeat=Math.min(...sel.map(c=>c.beat));const ids=new Set(sel.map(c=>c.id));return prev.map(c=>ids.has(c.id)?{...c,beat:minBeat+(c.beat-minBeat)*0.5}:c);},"double time");},need:1},
+              /* DOUBLE removed — merged into TIME slider */
               {label:"\u29C9",sub:"DUP FX",mid:"pad-dupfx",color:"#ff8844",action:()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id)&&c.beat>=fxStart&&c.beat<fxEnd);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());},need:1},
               {label:"\u21C4",sub:"REVERSE",mid:"pad-reverse",color:"#4488ff",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length<2)return prev;const groups={};sel.forEach(c=>{const k=c.fixtureId+"-"+c.param;if(!groups[k])groups[k]=[];groups[k].push(c);});const updates={};Object.values(groups).forEach(g=>{if(g.length<2)return;g.sort((a,b)=>a.beat-b.beat);const beats=g.map(c=>c.beat);const reversed=[...beats].reverse();g.forEach((c,i)=>{updates[c.id]={beat:reversed[i]};});});if(Object.keys(updates).length===0)return prev;return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);});},need:2},
               /* Row 3: FULL white, ALIGN L green, DISSOLVE blue, CLEAR orange */
               {label:"@",sub:"FULL",mid:"pad-full",color:"#ffffff",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const maxVal=Math.max(...sel.map(c=>c.value));if(maxVal===0)return prev;const groups={};sel.forEach(c=>{const p=getParam(c.param);if(p)groups[c.param]=p;});return prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=groups[c.param];if(!p)return c;const scale=p.max/maxVal;const nc={...c,value:Math.round(c.value*scale)};if(c.startValue!==undefined)nc.startValue=Math.round(c.startValue*scale);if(c.endValue!==undefined)nc.endValue=Math.round(c.endValue*scale);if(c.autoPoints)nc.autoPoints=c.autoPoints.map(pt=>({...pt,v:Math.round(pt.v*scale)}));return nc;});});},need:1},
-              {label:"\u25B8\u2502",sub:"GOTO",mid:"pad-goto",color:"#44cc44",action:()=>{const ph=playheadRef.current||0;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const ids=new Set(sel.map(c=>c.id));const byLane={};sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,laneCues])=>{laneCues.sort((a,b)=>a.beat-b.beat);offsets[k]=ph-laneCues[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});});},need:1},
+              {label:"\u25B8\u2502",sub:"GOTO",mid:"pad-goto",color:"#44cc44",action:()=>{
+                const sel=cues.filter(c=>selectedCues.has(c.id));if(sel.length===0)return;
+                const params=new Set(sel.map(c=>c.param));
+                if(params.size>1){setGotoPrompt(true);return;}
+                // single param — just go
+                const target=fxStart||0;
+                setCues(prev=>{const s=prev.filter(c=>selectedCues.has(c.id));if(s.length===0)return prev;const ids=new Set(s.map(c=>c.id));const byLane={};s.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,lc])=>{lc.sort((a,b)=>a.beat-b.beat);offsets[k]=target-lc[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});},"goto");
+              },need:1},
               {label:"\u223F",sub:"DISSOLVE",mid:"pad-dissolve",color:"#4488ff",action:handleDissolve,need:2},
               {label:"\u2702",sub:"SPLIT",mid:"pad-split",color:"#ff8844",action:()=>{setSplitMode(true);setPopupPos(null);},need:1},
               /* Row 4: BLACK black, ALIGN R green, QUANT blue, INVERT blue */
               (()=>{const anyMuted=cues.filter(c=>selectedCues.has(c.id)).some(c=>c.muted);return{label:anyMuted?"\uD83D\uDD0A":"\uD83D\uDD07",sub:anyMuted?"UNMUTE":"BLACK",mid:"pad-black",color:"#888888",action:()=>{setCues(prev=>prev.map(c=>selectedCues.has(c.id)?{...c,muted:!anyMuted}:c));},need:1};})(),
-              {label:"\u25B6",sub:"NUDGE",mid:"pad-nudge",color:"#44cc44",action:()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+1}:c);});},need:1},
+              /* NUDGE disabled — kept for future use: {label:"\u25B6",sub:"NUDGE",mid:"pad-nudge",color:"#44cc44",action:()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+1}:c);});},need:1}, */
               {label:"\u2B0D",sub:"INVERT",mid:"pad-invert",color:"#4488ff",action:()=>{setCues(prev=>prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=getParam(c.param);if(!p)return c;const inv=v=>p.max-(v-p.min);const nc={...c,value:inv(c.value)};if(c.startValue!==undefined)nc.startValue=inv(c.startValue);if(c.endValue!==undefined)nc.endValue=inv(c.endValue);return nc;}),"invert values");},need:1},
               /* Row 5: COPY→FX magenta, COPY→PRM magenta, SPREAD magenta, FAN magenta */
               {label:"\u2192",sub:"COPY\u2192FX",mid:"pad-copyfx",color:"#cc44ff",action:()=>{
@@ -3364,15 +3514,7 @@ function LightingTimeline() {
                 const srcFxIds=new Set(sel.map(c=>c.fixtureId));
                 const targets=fixtures.filter(fx=>!srcFxIds.has(fx.id));
                 if(targets.length===0){flashScreen("#ff4444");return;}
-                const names=targets.map(fx=>`${fx.id}: ${fx.name}`).join("\n");
-                const input=prompt("Copy "+sel.length+" cues to which fixtures?\nEnter fixture IDs separated by commas, or * for ALL.\n\nAvailable:\n"+names);
-                if(!input)return;
-                const targetIds=input.trim()==="*"?targets.map(fx=>fx.id):input.split(",").map(s=>s.trim()).map(n=>{const fx=fixtures.find(f=>String(f.id)===n);return fx?fx.id:null;}).filter(Boolean);
-                if(targetIds.length===0)return;
-                const newCues=[];
-                targetIds.forEach(fxId=>{sel.forEach(c=>{newCues.push({...c,id:genId(),fixtureId:fxId});});});
-                setCues(prev=>[...prev,...newCues],"copy to fixtures");
-                flashScreen("#cc44ff");
+                setCopyFxPicker({srcCues:sel,targets,selected:new Set()});
               },need:1},
               /* COPY→PRM removed — use COPY tool in toolbar, then click any param lane to paste with auto-scaling */
               {label:"\u2263",sub:"SPREAD",mid:"pad-spread",color:"#cc44ff",action:()=>{
@@ -3391,29 +3533,7 @@ function LightingTimeline() {
                 flashScreen("#cc44ff");
               },need:2},
               {label:"\u27F3",sub:"FAN",mid:"pad-fan",color:"#cc44ff",action:()=>{
-                const sel=cues.filter(c=>selectedCues.has(c.id));if(sel.length<2)return;
-                // Group by param — fan each param group separately
-                const groups={};
-                sel.forEach(c=>{if(!groups[c.param])groups[c.param]=[];groups[c.param].push(c);});
-                const updates={};
-                Object.values(groups).forEach(g=>{
-                  if(g.length<2)return;
-                  // Sort by beat position
-                  g.sort((a,b)=>a.beat-b.beat);
-                  // Find min and max values in the group
-                  const vals=g.map(c=>c.value);
-                  const minV=Math.min(...vals);
-                  const maxV=Math.max(...vals);
-                  if(minV===maxV)return;
-                  // Spread values evenly from min to max
-                  g.forEach((c,idx)=>{
-                    const t=idx/(g.length-1);
-                    updates[c.id]={value:Math.round(minV+t*(maxV-minV))};
-                  });
-                });
-                if(Object.keys(updates).length===0)return;
-                setCues(prev=>prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c),"fan values");
-                flashScreen("#cc44ff");
+                setFanSliderOpen(prev=>{if(!prev){setFanVal(50);setFanDir(">>");}return!prev;});
               },need:2},
             ].map((btn,i)=>{const cc=btn.color;const enabled=btn.need<=selectedCues.size;return(
               <button key={i} onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={btn.mid?midiBtn(btn.mid,btn.action):btn.action} disabled={!enabled&&midiLearn!=="waiting"} style={{position:"relative",background:enabled?`${cc}15`:"#111218",border:`1px solid ${enabled?cc+"44":"#1e2230"}`,color:enabled?cc:"#2a2e38",borderRadius:6,cursor:enabled||midiLearn==="waiting"?"pointer":"default",fontSize:16,fontWeight:"bold",textAlign:"center",transition:"background 0.15s",aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,touchAction:"manipulation",padding:4}}>
@@ -3422,7 +3542,7 @@ function LightingTimeline() {
                 <span style={{fontSize:7,letterSpacing:0.5,opacity:0.8}}>{btn.sub}</span>
               </button>
             );})}
-          </div>
+          </div>}
         </div>
       </div>;})()}
       {(()=>{
@@ -3430,6 +3550,249 @@ function LightingTimeline() {
         return msg?<div style={{position:"fixed",top:50,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`${msg.color}15`,border:`1px solid ${msg.color}33`,borderRadius:4,padding:"3px 14px",zIndex:998,pointerEvents:"none",backdropFilter:"blur(4px)"}}>
           <span style={{fontSize:14,color:msg.color,fontWeight:"bold",letterSpacing:3}}>{msg.text}</span>
         </div>:null;
+      })()}
+      {copyFxPicker&&(()=>{
+        const {srcCues,targets,selected}=copyFxPicker;
+        const toggle=(id)=>setCopyFxPicker(prev=>{if(!prev)return prev;const s=new Set(prev.selected);s.has(id)?s.delete(id):s.add(id);return{...prev,selected:s};});
+        const selAll=()=>setCopyFxPicker(prev=>prev?{...prev,selected:new Set(prev.targets.map(f=>f.id))}:prev);
+        const doApply=()=>{
+          if(selected.size===0)return;
+          const newCues=[];
+          selected.forEach(fxId=>{srcCues.forEach(c=>{newCues.push({...c,id:genId(),fixtureId:fxId});});});
+          setCues(prev=>[...prev,...newCues],"copy to fixtures");
+          flashScreen("#cc44ff");
+          setCopyFxPicker(null);
+        };
+        return <div onClick={()=>setCopyFxPicker(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#0a0c10",border:"1px solid #cc44ff44",borderRadius:10,padding:14,minWidth:260,maxWidth:380,boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:11,color:"#cc44ff",fontWeight:"bold",letterSpacing:1}}>COPY {srcCues.length} CUES TO</span>
+              <button onClick={()=>setCopyFxPicker(null)} style={{background:"#1c1016",border:"1px solid #ff444444",color:"#ff6666",cursor:"pointer",fontSize:12,padding:"2px 8px",borderRadius:4,fontWeight:"bold"}}>{"\u2715"}</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:10}}>
+              {targets.map(fx=>{const on=selected.has(fx.id);return <button key={fx.id} onClick={()=>toggle(fx.id)} style={{background:on?"#cc44ff22":"#111218",border:`1px solid ${on?"#cc44ff88":"#1e2230"}`,color:on?"#cc44ff":"#556",borderRadius:6,cursor:"pointer",padding:"8px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:2,transition:"all 0.15s"}}>
+                <span style={{fontSize:16,fontWeight:"bold"}}>{fx.id}</span>
+                <span style={{fontSize:7,letterSpacing:0.5,opacity:0.7}}>{fx.name}</span>
+              </button>;})}
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={selAll} style={{flex:1,background:"#cc44ff15",border:"1px solid #cc44ff33",color:"#cc44ff",borderRadius:6,cursor:"pointer",padding:"6px",fontSize:10,fontWeight:"bold",letterSpacing:1}}>ALL</button>
+              <button onClick={doApply} style={{flex:2,background:selected.size>0?"#cc44ff33":"#111218",border:`1px solid ${selected.size>0?"#cc44ff88":"#1e2230"}`,color:selected.size>0?"#fff":"#333",borderRadius:6,cursor:selected.size>0?"pointer":"default",padding:"6px",fontSize:11,fontWeight:"bold",letterSpacing:1,transition:"all 0.15s"}}>COPY TO {selected.size} FIXTURE{selected.size!==1?"S":""}</button>
+            </div>
+          </div>
+        </div>;
+      })()}
+      {timeSliderOpen&&selectedCues.size>0&&(()=>{
+        const applyTime=()=>{
+          if(timeScaleVal===50){setTimeSliderOpen(false);return;}
+          const t=timeScaleVal/50-1;
+          let scale;
+          if(t<0) scale=1+(-t)*4;
+          else scale=1/(1+t*4);
+          setCues(prev=>{
+            const sel=prev.filter(c=>selectedCues.has(c.id));
+            if(sel.length===0)return prev;
+            const minBeat=Math.min(...sel.map(c=>c.beat));
+            const ids=new Set(sel.map(c=>c.id));
+            return prev.map(c=>ids.has(c.id)?{...c,beat:minBeat+(c.beat-minBeat)*scale}:c);
+          },"time scale");
+          setTimeSliderOpen(false);
+          setTimeScaleVal(50);
+          flashScreen("#44cc44");
+        };
+        const dispScale=(()=>{const t=timeScaleVal/50-1;if(t<0)return"x"+(1+(-t)*4).toFixed(1)+" SLOW";if(t>0)return"/"+(1+t*4).toFixed(1)+" FAST";return"1x";})();
+        return <><div onClick={()=>{setTimeSliderOpen(false);setTimeScaleVal(50);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9998}}/>
+          <div style={{position:"fixed",top:`calc(50vh - 75px)`,left:`calc(50vw - 240px)`,background:"#0c0e12",border:"1px solid #44cc4444",borderRadius:8,padding:"16px 20px",zIndex:9999,width:480,boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{fontSize:13,color:"#44cc4488",letterSpacing:2,fontWeight:"bold"}}>TIME SCALE</span>
+              <span style={{fontSize:22,color:"#44cc44",fontWeight:"bold"}}>{dispScale}</span>
+            </div>
+            <GlowSlider min={0} max={100} step={1} value={timeScaleVal} onChange={setTimeScaleVal} color="#44cc44" ticks={10} label="TIME"/>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:12,gap:8}}>
+              <button onClick={()=>{setTimeSliderOpen(false);setTimeScaleVal(50);}} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff4444",borderRadius:4,cursor:"pointer",minHeight:40}}>CANCEL</button>
+              <button onClick={()=>setTimeScaleVal(50)} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#44cc44",borderRadius:4,cursor:"pointer",minHeight:40}}>RESET</button>
+              <button onClick={applyTime} style={{flex:2,padding:"10px 0",fontSize:14,fontWeight:"bold",background:timeScaleVal!==50?"#0a1a0a":"#1a1e28",border:`1px solid ${timeScaleVal!==50?"#44ffaa44":"#252930"}`,color:timeScaleVal!==50?"#44ffaa":"#333",borderRadius:4,cursor:timeScaleVal!==50?"pointer":"default",minHeight:40,transition:"all 0.15s"}}>OK</button>
+            </div>
+          </div></>;
+      })()}
+      {fanSliderOpen&&selectedCues.size>1&&(()=>{
+        const amt=(fanVal-50)/50; // -1 to +1, shared by applyFan and bar chart
+        const fxIdx={};fixtures.forEach((fx,i)=>{fxIdx[fx.id]=i;});
+        const applyFan=()=>{
+          if(fanVal===50){setFanSliderOpen(false);return;}
+          setCues(prev=>{
+            const sel=prev.filter(c=>selectedCues.has(c.id));
+            if(sel.length<2)return prev;
+            const groups={};
+            sel.forEach(c=>{if(!groups[c.param])groups[c.param]=[];groups[c.param].push(c);});
+            const updates={};
+            Object.values(groups).forEach(g=>{
+              const p=getParam(g[0].param);if(!p)return;
+              const uniqFx=[...new Set(g.map(c=>c.fixtureId))].sort((a,b)=>(fxIdx[a]??0)-(fxIdx[b]??0));
+              if(uniqFx.length<2)return;
+              const toDmx=v=>((v-p.min)/(p.max-p.min))*255;
+              const toNative=d=>(d/255)*(p.max-p.min)+p.min;
+              const fxFanT={};
+              if(fanDir==="><"){
+                // CENTER mode: symmetric spread — center stays, edges deviate equally
+                uniqFx.forEach((fId,i)=>{const lin=uniqFx.length>1?(2*i/(uniqFx.length-1)-1):0;fxFanT[fId]=Math.sign(lin)*lin*lin;});
+                g.forEach(c=>{
+                  const signed=fxFanT[c.fixtureId]??0;
+                  const dmxOrig=toDmx(c.value);
+                  const maxDev=Math.min(dmxOrig,255-dmxOrig); // symmetric headroom
+                  const offset=signed*maxDev*amt;
+                  const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+                  updates[c.id]={value:Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))))};
+                });
+              } else {
+                // SPREAD mode: >> = last fixture stays, << = first fixture stays
+                uniqFx.forEach((fId,i)=>{fxFanT[fId]=uniqFx.length>1?(fanDir==="<<"?i/(uniqFx.length-1):1-i/(uniqFx.length-1)):0;});
+                g.forEach(c=>{
+                  const dev=fxFanT[c.fixtureId]??0;
+                  const dmxOrig=toDmx(c.value);
+                  const maxDev=amt>0?dmxOrig:255-dmxOrig;
+                  const offset=-dev*maxDev*amt;
+                  const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+                  updates[c.id]={value:Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))))};
+                });
+              }
+            });
+            if(Object.keys(updates).length===0)return prev;
+            return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);
+          },"fan values");
+          setFanSliderOpen(false);
+          setFanVal(50);
+          flashScreen("#cc44ff");
+        };
+        const pct=Math.abs(fanVal-50)*2;
+        const dir=fanVal>50?"FAN \u2192":fanVal<50?"\u2190 REV":"—";
+        // Build bar chart data grouped by param, ordered by fixture index
+        const sel=cues.filter(c=>selectedCues.has(c.id));
+        const barGroups={};
+        sel.forEach(c=>{if(!barGroups[c.param])barGroups[c.param]=[];barGroups[c.param].push(c);});
+        const barData=[];
+        Object.entries(barGroups).forEach(([paramId,g])=>{
+          const p=getParam(paramId);if(!p)return;
+          const sorted=[...g].sort((a,b)=>(fxIdx[a.fixtureId]??0)-(fxIdx[b.fixtureId]??0)||(a.beat-b.beat));
+          const uniqFx=[...new Set(sorted.map(c=>c.fixtureId))];
+          const toDmx=v=>((v-p.min)/(p.max-p.min))*255;
+          const toNative=d=>(d/255)*(p.max-p.min)+p.min;
+          const fxFanT={};
+          if(fanDir==="><"){
+            uniqFx.forEach((fId,i)=>{const lin=uniqFx.length>1?(2*i/(uniqFx.length-1)-1):0;fxFanT[fId]=Math.sign(lin)*lin*lin;});
+          } else {
+            // SPREAD mode: >> = last fixture stays, << = first fixture stays
+            uniqFx.forEach((fId,i)=>{fxFanT[fId]=uniqFx.length>1?(fanDir==="<<"?i/(uniqFx.length-1):1-i/(uniqFx.length-1)):0;});
+          }
+          const items=sorted.map((c,idx)=>{
+            let newVal=c.value;
+            if(uniqFx.length>=2&&fanVal!==50){
+              const dmxOrig=toDmx(c.value);
+              if(fanDir==="><"){
+                // CENTER mode: symmetric spread
+                const signed=fxFanT[c.fixtureId]??0;
+                const maxDev=Math.min(dmxOrig,255-dmxOrig); // symmetric headroom
+                const offset=signed*maxDev*amt;
+                const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+                newVal=Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))));
+              } else {
+                // SPREAD mode: >> or <<
+                const dev=fxFanT[c.fixtureId]??0;
+                const maxDev=amt>0?dmxOrig:255-dmxOrig;
+                const offset=-dev*maxDev*amt;
+                const dmxFanned=Math.max(0,Math.min(255,dmxOrig+offset));
+                newVal=Math.max(p.min,Math.min(p.max,Math.round(toNative(dmxFanned))));
+              }
+            }
+            return{orig:c.value,fan:newVal,max:p.max,fxId:c.fixtureId};
+          });
+          barData.push({paramId,label:p.label,color:p.color,items});
+        });
+        // Send preview to viz via BroadcastChannel
+        try{
+          const ch=new BroadcastChannel('lumina-viz');
+          if(fanVal!==50){
+            const overrides={};
+            barData.forEach(bg=>bg.items.forEach(b=>{overrides[b.fxId+"-"+bg.paramId]=b.fan;}));
+            ch.postMessage({type:'fan-preview',overrides});
+          } else {
+            ch.postMessage({type:'fan-preview-clear'});
+          }
+          ch.close();
+        }catch(e){}
+        return <><div onClick={()=>{setFanSliderOpen(false);setFanVal(50);try{const ch=new BroadcastChannel('lumina-viz');ch.postMessage({type:'fan-preview-clear'});ch.close();}catch(e){}}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9998}}/>
+          <div style={{position:"fixed",top:`calc(50vh - 140px)`,left:`calc(50vw - 240px)`,background:"#0c0e12",border:"1px solid #cc44ff44",borderRadius:8,padding:"16px 20px",zIndex:9999,width:480,boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{fontSize:13,color:"#cc44ff88",letterSpacing:2,fontWeight:"bold"}}>FAN VALUES</span>
+              <span style={{fontSize:22,color:"#cc44ff",fontWeight:"bold"}}>{pct}% {dir}</span>
+            </div>
+            <GlowSlider min={0} max={100} step={1} value={fanVal} onChange={setFanVal} color="#cc44ff" ticks={10} label="FAN"/>
+            <div style={{display:"flex",gap:6,marginTop:8,justifyContent:"center"}}>
+              {[{id:">>",label:"\u226A",tip:"\u226A SPREAD"},{id:"<<",label:"\u226B",tip:"SPREAD \u226B"},{id:"><",label:"\u25C0\u25B6",tip:"CENTER"}].map(d=>(
+                <button key={d.id} onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>setFanDir(d.id)} style={{flex:1,padding:"8px 0",fontSize:15,fontWeight:"bold",background:fanDir===d.id?"#2a0a2a":"#111218",border:`1px solid ${fanDir===d.id?"#cc44ff88":"#252930"}`,color:fanDir===d.id?"#cc44ff":"#555",borderRadius:4,cursor:"pointer",transition:"all 0.15s",boxShadow:fanDir===d.id?"0 0 8px #cc44ff22":"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <span>{d.label}</span>
+                  <span style={{fontSize:8,letterSpacing:1,opacity:0.7}}>{d.tip}</span>
+                </button>
+              ))}
+            </div>
+            {barData.map(bg=><div key={bg.paramId} style={{marginTop:10}}>
+              <div style={{fontSize:7,color:bg.color+"88",letterSpacing:1,marginBottom:3}}>{bg.label}</div>
+              <div style={{display:"flex",alignItems:"flex-end",gap:2,height:56,background:"#080a10",borderRadius:4,padding:"4px 4px 2px",border:"1px solid #1a1e28"}}>
+                {bg.items.map((b,i)=>{
+                  const origH=b.max>0?Math.max(2,(b.orig/b.max)*44):2;
+                  const fanH=b.max>0?Math.max(2,(b.fan/b.max)*44):2;
+                  const changed=b.orig!==b.fan;
+                  return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative",height:48,justifyContent:"flex-end"}}>
+                    {changed&&<div style={{position:"absolute",top:-1,fontSize:7,color:"#cc44ff",fontWeight:"bold"}}>{b.fan}</div>}
+                    <div style={{width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center",gap:1,height:44}}>
+                      <div style={{width:changed?"40%":"80%",height:origH,background:bg.color+"44",borderRadius:1,transition:"height 0.15s"}}/>
+                      {changed&&<div style={{width:"40%",height:fanH,background:"#cc44ff",borderRadius:1,transition:"height 0.15s",boxShadow:"0 0 4px #cc44ff44"}}/>}
+                    </div>
+                    <div style={{fontSize:6,color:"#555",marginTop:1}}>{b.fxId}</div>
+                  </div>;
+                })}
+              </div>
+            </div>)}
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:12,gap:8}}>
+              <button onClick={()=>{setFanSliderOpen(false);setFanVal(50);try{const ch=new BroadcastChannel('lumina-viz');ch.postMessage({type:'fan-preview-clear'});ch.close();}catch(e){}}} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff4444",borderRadius:4,cursor:"pointer",minHeight:40}}>CANCEL</button>
+              <button onClick={()=>setFanVal(50)} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#cc44ff",borderRadius:4,cursor:"pointer",minHeight:40}}>RESET</button>
+              <button onClick={()=>{applyFan();try{const ch=new BroadcastChannel('lumina-viz');ch.postMessage({type:'fan-preview-clear'});ch.close();}catch(e){}}} style={{flex:2,padding:"10px 0",fontSize:14,fontWeight:"bold",background:fanVal!==50?"#1a0a1a":"#1a1e28",border:`1px solid ${fanVal!==50?"#cc44ff44":"#252930"}`,color:fanVal!==50?"#cc44ff":"#333",borderRadius:4,cursor:fanVal!==50?"pointer":"default",minHeight:40,transition:"all 0.15s"}}>OK</button>
+            </div>
+          </div></>;
+      })()}
+      {gotoPrompt&&(()=>{
+        const target=fxStart||0;
+        const doGoto=(mode)=>{
+          setCues(prev=>{
+            const sel=prev.filter(c=>selectedCues.has(c.id));
+            if(sel.length===0)return prev;
+            const ids=new Set(sel.map(c=>c.id));
+            if(mode==="all"){
+              // ALL TO LOCATOR: every single cue moves to the locator beat
+              const byLane={};
+              sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});
+              const offsets={};
+              Object.entries(byLane).forEach(([k,lc])=>{lc.sort((a,b)=>a.beat-b.beat);offsets[k]=target-lc[0].beat;});
+              return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});
+            } else {
+              // KEEP GAPS: first cue to locator, all others keep their relative distance
+              const globalMin=Math.min(...sel.map(c=>c.beat));
+              const offset=target-globalMin;
+              return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+offset}:c);
+            }
+          },"goto");
+          setGotoPrompt(false);
+          flashScreen("#44cc44");
+        };
+        return <><div onClick={()=>setGotoPrompt(false)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10001,background:"rgba(0,0,0,0.4)"}}/>
+          <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:`calc(50vh - 70px)`,left:`calc(50vw - 210px)`,background:"#0c0e12",border:"1px solid #44cc4444",borderRadius:8,padding:"20px 24px",zIndex:10002,width:420,boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
+            <div style={{fontSize:14,color:"#44cc44",fontWeight:"bold",letterSpacing:2,marginBottom:16,textAlign:"center"}}>GOTO LOCATOR</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <button onClick={()=>doGoto("all")} style={{padding:"14px 0",fontSize:13,fontWeight:"bold",background:"#1a1e28",border:"1px solid #44cc4444",color:"#44cc44",borderRadius:6,cursor:"pointer",minHeight:48,letterSpacing:1}}>ALL PARAMS TO LOCATOR</button>
+              <button onClick={()=>doGoto("keep")} style={{padding:"14px 0",fontSize:13,fontWeight:"bold",background:"#1a1e28",border:"1px solid #cc994444",color:"#cc9944",borderRadius:6,cursor:"pointer",minHeight:48,letterSpacing:1}}>FIRST TO LOCATOR + KEEP GAPS</button>
+              <button onClick={()=>setGotoPrompt(false)} style={{padding:"10px 0",fontSize:11,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333322",color:"#ff444488",borderRadius:6,cursor:"pointer",minHeight:36,letterSpacing:1}}>CANCEL</button>
+            </div>
+          </div></>;
       })()}
       {screenFlash && <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:screenFlash+"44",zIndex:9997,pointerEvents:"none",animation:"screenflash 0.3s ease-out forwards"}}/>}
       {osd && <div key={osd.key} style={{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#000000cc",borderRadius:16,padding:"24px 48px",zIndex:9999,pointerEvents:"none",backdropFilter:"blur(8px)",border:`2px solid ${osd.color}44`,animation:"osdfade 2s ease-out forwards",minWidth:240,textAlign:"center"}}>
@@ -3543,6 +3906,7 @@ function LightingTimeline() {
         <button onClick={midiBtn("act:undo",handleGlobalUndo)} style={{position:"relative",background:undoHistoryRef.current.length?"#2a1e10":midiLearn==="act:undo"?"#2a1a30":"#1e1c16",border:"1px solid "+(midiLearn==="act:undo"?"#aa44ff":undoHistoryRef.current.length?"#cc994466":"#3a3020"),color:undoHistoryRef.current.length?"#cc9944":"#333",borderRadius:4,padding:"3px 8px",cursor:undoHistoryRef.current.length?"pointer":"default",fontSize:10,animation:midiLearn==="act:undo"?"midipulse 1.2s infinite":"none"}} title="Undo (Ctrl+Z)">{"\u21B6"}{midiTag("act:undo")&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiTag("act:undo")}</span>}</button>
         <button onClick={midiBtn("act:redo",handleGlobalRedo)} style={{position:"relative",background:redoHistoryRef.current.length?"#102a1e":midiLearn==="act:redo"?"#2a1a30":"#161e1c",border:"1px solid "+(midiLearn==="act:redo"?"#aa44ff":redoHistoryRef.current.length?"#44cc9966":"#203a30"),color:redoHistoryRef.current.length?"#44cc99":"#333",borderRadius:4,padding:"3px 8px",cursor:redoHistoryRef.current.length?"pointer":"default",fontSize:10,animation:midiLearn==="act:redo"?"midipulse 1.2s infinite":"none"}} title="Redo (Ctrl+Shift+Z)">{"\u21B7"}{midiTag("act:redo")&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiTag("act:redo")}</span>}</button>
 
+        <button onClick={()=>{window.open('viz.html','lumina-viz','width=1200,height=700');}} style={{background:"#1e222a",border:"1px solid #3a6adf44",color:"#3a6adf",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:11}} title="Open Visualizer">{"\uD83D\uDCA1"} VIZ</button>
         <button onClick={()=>{if(!luminaMenuOpen){handleShowLoad();setLuminaTab('load');}setLuminaMenuOpen(v=>!v);}} style={{background:luminaMenuOpen?"linear-gradient(135deg,#2a2510,#cc994433,#2a2510)":"#1e222a",border:"1px solid "+(luminaMenuOpen?"#cc9944":"#2e3340"),color:"#cc9944",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:11,boxShadow:luminaMenuOpen?"0 0 12px #cc994444, inset 0 0 8px #cc994422":"none",transition:"all 0.3s ease"}} title="Lumina Menu">{"\u2728"} LUMINA</button>
         <div style={{width:60}}><GlowSlider min={0.3} max={3} step={0.05} value={zoom} onChange={setZoom} color="#cc9944" ticks={5} label="ZOOM" midiId="zoom"/></div>
       </div>
@@ -3685,6 +4049,20 @@ function LightingTimeline() {
                           <CurvePath cue={gc} w={gcW} h={gcH} color="#4488ff" isActive={true}/>
                         </div>;
                       })}
+                      {timeGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId).map((gc,gi)=>{
+                        const gcW=Math.max(4,beatToX(gc.duration)-2);
+                        const gcH=row.h-4;
+                        return <div key={"tghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#44cc4406",border:"1px dashed #44cc4430",borderRadius:3,pointerEvents:"none",zIndex:2}}>
+                          <CurvePath cue={gc} w={gcW} h={gcH} color="#44cc44" isActive={true}/>
+                        </div>;
+                      })}
+                      {fanGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId).map((gc,gi)=>{
+                        const gcW=Math.max(4,beatToX(gc.duration)-2);
+                        const gcH=row.h-4;
+                        return <div key={"fghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#cc44ff06",border:"1px dashed #cc44ff30",borderRadius:3,pointerEvents:"none",zIndex:2}}>
+                          <CurvePath cue={gc} w={gcW} h={gcH} color="#cc44ff" isActive={true}/>
+                        </div>;
+                      })}
                     </div>
                   </div>
                 );
@@ -3709,19 +4087,19 @@ function LightingTimeline() {
           "act:loop_out":()=>{setLoopEnabled(false);playheadRef.current=loopEnd;setDisplayPlayhead(loopEnd);if(audioMode==="file"&&playing)audioEngine.seekTo(loopEnd);},
           "act:tap":handleTap,
           "pad-selfix":()=>{if(selectedCues.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const fxIds=new Set(sel.map(c=>c.fixtureId));const newSel=new Set();cues.forEach(c=>{if(fxIds.has(c.fixtureId)&&params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},
-          "pad-half":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const minBeat=Math.min(...sel.map(c=>c.beat));const ids=new Set(sel.map(c=>c.id));return prev.map(c=>ids.has(c.id)?{...c,beat:minBeat+(c.beat-minBeat)*2}:c);});},
+          /* "pad-half" removed — merged into TIME slider */
           "pad-dup":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));const maxBeat=Math.max(...sel.map(c=>c.beat+c.duration));const minBeat=Math.min(...sel.map(c=>c.beat));const offset=maxBeat-minBeat;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+offset}));return[...prev,...newCues];});setSelectedCues(new Set());},
           "pad-delete":()=>{setCues(prev=>prev.filter(c=>!selectedCues.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},
           "pad-selall":()=>{if(selectedCues.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const newSel=new Set();cues.forEach(c=>{if(params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},
-          "pad-double":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const minBeat=Math.min(...sel.map(c=>c.beat));const ids=new Set(sel.map(c=>c.id));return prev.map(c=>ids.has(c.id)?{...c,beat:minBeat+(c.beat-minBeat)*0.5}:c);});},
+          /* "pad-double" removed — merged into TIME slider */
           "pad-dupfx":()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id)&&c.beat>=fxStart&&c.beat<fxEnd);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());},
           "pad-reverse":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length<2)return prev;const groups={};sel.forEach(c=>{const k=c.fixtureId+"-"+c.param;if(!groups[k])groups[k]=[];groups[k].push(c);});const updates={};Object.values(groups).forEach(g=>{if(g.length<2)return;g.sort((a,b)=>a.beat-b.beat);const beats=g.map(c=>c.beat);const reversed=[...beats].reverse();g.forEach((c,i)=>{updates[c.id]={beat:reversed[i]};});});if(Object.keys(updates).length===0)return prev;return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);});},
           "pad-full":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const maxVal=Math.max(...sel.map(c=>c.value));if(maxVal===0)return prev;const groups={};sel.forEach(c=>{const p=getParam(c.param);if(p)groups[c.param]=p;});return prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=groups[c.param];if(!p)return c;const scale=p.max/maxVal;const nc={...c,value:Math.round(c.value*scale)};if(c.startValue!==undefined)nc.startValue=Math.round(c.startValue*scale);if(c.endValue!==undefined)nc.endValue=Math.round(c.endValue*scale);if(c.autoPoints)nc.autoPoints=c.autoPoints.map(pt=>({...pt,v:Math.round(pt.v*scale)}));return nc;});});},
-          "pad-goto":()=>{const ph=playheadRef.current||0;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const ids=new Set(sel.map(c=>c.id));const byLane={};sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,laneCues])=>{laneCues.sort((a,b)=>a.beat-b.beat);offsets[k]=ph-laneCues[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});});},
+          "pad-goto":()=>{const target=fxStart||0;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const ids=new Set(sel.map(c=>c.id));const byLane={};sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,laneCues])=>{laneCues.sort((a,b)=>a.beat-b.beat);offsets[k]=target-laneCues[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});});},
           "pad-dissolve":handleDissolve,
           "pad-split":()=>{setSplitMode(true);setPopupPos(null);},
           "pad-black":()=>{const anyMuted=cues.filter(c=>selectedCues.has(c.id)).some(c=>c.muted);setCues(prev=>prev.map(c=>selectedCues.has(c.id)?{...c,muted:!anyMuted}:c));},
-          "pad-nudge":()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+1}:c);});},
+          /* "pad-nudge" disabled — kept for future use */
           "pad-quant":()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:Math.round(c.beat),duration:Math.max(0.25,Math.round(c.duration*4)/4)}:c);});},
           "pad-invert":()=>{setCues(prev=>prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=getParam(c.param);if(!p)return c;const inv=v=>p.max-(v-p.min);const nc={...c,value:inv(c.value)};if(c.startValue!==undefined)nc.startValue=inv(c.startValue);if(c.endValue!==undefined)nc.endValue=inv(c.endValue);return nc;}));}
         }}/>}
@@ -3741,6 +4119,7 @@ function LightingTimeline() {
                     <div style={{width:6,height:6,borderRadius:"50%",background:selParam.color}}/>
                     <span style={{fontSize:10,color:selParam.color}}>{editIds.size>1?`${editIds.size} cues`:fixtures.find(f=>f.id===selCue.fixtureId)?.name}</span>
                     <span style={{fontSize:9,color:"#555"}}>{editIds.size>1?"/ batch edit":`/ ${selParam.label}`}</span>
+                    {editIds.size>1&&<button onClick={()=>{setRelativeMode(r=>!r);relBaseRef.current={};}} style={{marginLeft:"auto",background:relativeMode?"#cc994433":"#0c0e12",border:`1px solid ${relativeMode?"#cc9944":"#252930"}`,color:relativeMode?"#cc9944":"#555",borderRadius:3,cursor:"pointer",fontSize:7,padding:"2px 6px",fontWeight:"bold",letterSpacing:1}}>REL</button>}
                   </div>
                   {[
                     {label:"BEAT",key:"beat",val:+selCue.beat.toFixed(2),min:0,max:TOTAL_BEATS,step:0.25,color:"#4488ff"},

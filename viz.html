@@ -48,7 +48,10 @@
 
 <div id="header">
   <h1>LUMINA FX &middot; VISUALIZER</h1>
-  <div id="status"><div id="dot" class="connecting"></div><span id="status-text">connecting…</span></div>
+  <div id="status">
+    <div id="dot" class="connecting"></div><span id="status-text">connecting…</span>
+    <button onclick="window.close()" style="background:#1c0a08;border:1px solid #ff444444;color:#ff6666;cursor:pointer;font-size:10px;padding:2px 10px;border-radius:4;font-family:'Courier New',monospace;font-weight:bold;margin-left:8px;letter-spacing:1px">✕ CLOSE</button>
+  </div>
 </div>
 
 <div id="main">
@@ -159,7 +162,11 @@ function getFixtureParams(fx) {
 }
 
 // ─── Param helpers — use ACTUAL param names from live data ───
-function pv(id, param) { return live[id + '-' + param]; }
+function pv(id, param) {
+  // Check preview overrides first (fan preview from main app)
+  if (previewOverrides) { const k = id + '-' + param; if (previewOverrides[k] !== undefined) return previewOverrides[k]; }
+  return live[id + '-' + param];
+}
 function pvd(id, param, def) { const v = pv(id, param); return v !== undefined ? v : def; }
 
 function getFixtureColor(id) {
@@ -619,7 +626,7 @@ function drawStage(W, H, layout) {
     ctx.font = `bold ${Math.max(8, lensR * 0.9)}px "Courier New"`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText((fx.name.match(/\d+/) || [''])[0], x, y);
+    ctx.fillText(fx.id, x, y);
 
     // Selection ring
     if (isSel) {
@@ -888,8 +895,19 @@ function updateDetailLive(fx) {
   });
 }
 
+// ─── Preview Overrides ───
+let previewOverrides = null; // {key: value} from fan preview
+
 // ─── Hit Testing ───
 let currentLayout = {positions:{}, radius:18};
+const vizChannel = new BroadcastChannel('lumina-viz');
+vizChannel.onmessage = (e) => {
+  if (e.data && e.data.type === 'fan-preview') {
+    previewOverrides = e.data.overrides;
+  } else if (e.data && e.data.type === 'fan-preview-clear') {
+    previewOverrides = null;
+  }
+};
 canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
   const sx = canvas.width/rect.width, sy = canvas.height/rect.height;
@@ -901,6 +919,8 @@ canvas.addEventListener('click', e => {
   });
   selectedId = hit ? hit.id : null;
   updateDetailPanel(hit);
+  // Broadcast fixture tap to main app
+  if (hit) vizChannel.postMessage({type:'fixture-tap', fixtureId:hit.id, shift:e.shiftKey});
 });
 
 // ─── Render Loop ───
