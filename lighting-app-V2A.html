@@ -2186,9 +2186,11 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
 
   const WW=37, WH=80, GAP=12;
   const blackAfter = new Set([0,1,2,4,5]);
-  const totalPages = Math.ceil(fixtures.length / PADS_PER_PAGE);
-  const pagedFixtures = fixtures.slice(padPage * PADS_PER_PAGE, (padPage + 1) * PADS_PER_PAGE);
-  const totalW = pagedFixtures.length*(WW+GAP)-GAP+10;
+  const totalPages = Math.max(1, Math.ceil(fixtures.length / PADS_PER_PAGE));
+  const pagedFixturesRaw = fixtures.slice(padPage * PADS_PER_PAGE, (padPage + 1) * PADS_PER_PAGE);
+  // Always show PADS_PER_PAGE keys — fill empty slots with null
+  const pagedFixtures = Array.from({length: PADS_PER_PAGE}, (_, i) => pagedFixturesRaw[i] || null);
+  const totalW = PADS_PER_PAGE*(WW+GAP)-GAP+10;
 
   return (
     <div style={{background:"#110d0d",flexShrink:0,margin:"0 6px 6px",borderRadius:14,boxShadow:"0 -4px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)",overflow:"hidden"}}>
@@ -2212,6 +2214,22 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
         </div>}
         <div style={{position:"relative",width:totalW,height:WH+20}}>
           {pagedFixtures.map((fx,idx) => {
+            const emptySlotId = `empty-${padPage}-${idx}`;
+            const x=idx*(WW+GAP);
+            if (!fx) {
+              // Empty/unassigned key — gray, MIDI-learnable
+              return (
+                <div key={emptySlotId} style={{position:"absolute",left:x,top:0,width:WW}}>
+                  <div onMouseDown={()=>{if(midiLearn==="waiting"){setMidiLearn(emptySlotId);return;}}}
+                    style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:"linear-gradient(180deg,#6a6e76,#4a4e56)",border:"1px solid #555",boxShadow:"0 6px 0 #111",position:"relative",overflow:"hidden",userSelect:"none",cursor:midiLearn==="waiting"?"pointer":"default",opacity:0.5}}>
+                    <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:"rgba(0,0,0,0.15)",border:"1px solid #55555555",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:"#555"}}>{idx+1+padPage*PADS_PER_PAGE}</div>
+                    {midiLearn===emptySlotId&&<div style={{position:"absolute",inset:0,borderRadius:"3px 3px 8px 8px",border:"2px solid #cc66ff",animation:"midilearn 0.8s infinite",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(170,68,255,0.15)",zIndex:5}}><span style={{fontSize:8,color:"#cc66ff",fontWeight:"bold"}}>PRESS KEY</span></div>}
+                    {reverseMidiMap[emptySlotId]!==undefined&&midiLearn!==emptySlotId&&<div style={{position:"absolute",top:4,left:4,padding:"1px 3px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:7,color:"#bb88ee",fontWeight:"bold",zIndex:4}}>{midiKeyLabel(reverseMidiMap[emptySlotId])}</div>}
+                  </div>
+                  <div style={{marginTop:4,height:3,background:"#0c0e12",borderRadius:2}}/>
+                </div>
+              );
+            }
             const isHeld=heldPads.has(fx.id);
             const dimVal=dimmerLive[fx.id]||0;
             const liveVal=paramLive[fx.id];
@@ -2220,7 +2238,6 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const padVal=padValues[fx.id]??param.max;
             const fillPct=isActive?Math.max(0,Math.min(1,(liveVal-param.min)/Math.max(1,param.max-param.min))):(padVal-param.min)/Math.max(1,param.max-param.min);
             const glowStr=isActive?(0.3+dimVal*0.7):0;
-            const x=idx*(WW+GAP);
             const pCol=param.color||fx.color;
             const keyBg=isHeld?`linear-gradient(180deg,${pCol}dd,${pCol}88)`:isActive?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,${pCol}aa ${(1-fillPct)*100}%,${pCol}77 100%)`:`linear-gradient(180deg,#d4d8e0,#aeb4c0)`;
             return (
@@ -2244,7 +2261,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
               </div>
             );
           })}
-          {pagedFixtures.map((fx,idx) => {
+          {pagedFixtures.map((_,idx) => {
             const globalIdx = idx + padPage * PADS_PER_PAGE;
             if (!blackAfter.has(globalIdx % 7)) return null;
             return <div key={`bk-${idx}`} style={{position:"absolute",left:idx*(WW+GAP)+WW-12,top:0,width:24,height:54,borderRadius:"2px 2px 5px 5px",background:"linear-gradient(180deg,#1a1a1a,#2e2e2e 60%,#1a1a1a)",border:"1px solid #000",boxShadow:"0 5px 0 #000",zIndex:3,pointerEvents:"none"}}/>;
