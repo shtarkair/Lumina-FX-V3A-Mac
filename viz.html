@@ -14,33 +14,35 @@
   #dot.live{background:#44ff88;box-shadow:0 0 6px #44ff88;}
   #dot.connecting{background:#ffaa44;animation:pulse 1s infinite;}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
-  #main{display:flex;flex:1;overflow:hidden;}
+  #main{display:flex;flex-direction:column;flex:1;overflow:hidden;}
   #stage-wrap{flex:1;position:relative;overflow:hidden;background:#050508;}
   canvas#stage{display:block;width:100%;height:100%;}
-  #detail{width:300px;background:#080a10;border-left:1px solid #141824;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
-  #detail-header{padding:8px 12px;border-bottom:1px solid #141824;font-size:9px;letter-spacing:2px;color:#2a3550;display:flex;justify-content:space-between;align-items:center;}
-  #detail-body{flex:1;overflow-y:auto;padding:0;}
-  #no-select{display:flex;flex:1;align-items:center;justify-content:center;color:#1a2030;font-size:10px;letter-spacing:2px;text-align:center;padding:20px;min-height:200px;}
-  #detail-content{display:none;flex-direction:column;}
-  .det-top{padding:10px 12px;border-bottom:1px solid #0e1220;display:flex;justify-content:space-between;align-items:flex-start;}
-  .det-name{font-size:14px;font-weight:bold;color:#c8d4f0;letter-spacing:1px;}
-  .det-type{font-size:8px;color:#2a3550;letter-spacing:1px;margin-top:2px;}
-  .det-dim{font-size:28px;font-weight:bold;color:#3a6adf;letter-spacing:1px;line-height:1;}
-  .det-dim-label{font-size:7px;color:#2a3550;letter-spacing:1px;text-align:right;}
-  .mh-wrap{position:relative;width:100%;height:260px;background:#030406;border-bottom:1px solid #0e1220;overflow:hidden;flex-shrink:0;}
-  .mh-wrap canvas{display:block;width:100%;height:260px;}
-  .color-strip{height:4px;background:#0a0c12;}
-  .params-section{padding:8px 10px;}
-  .params-section-title{font-size:7px;color:#2a3550;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #0e1220;}
-  .params-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;}
-  .param-box{background:#080a12;border:1px solid #10141e;border-radius:2px;padding:4px 5px;text-align:center;}
-  .param-box.active{border-color:#1a2540;}
-  .param-label{font-size:6px;color:#2a3550;letter-spacing:1px;text-transform:uppercase;}
-  .param-val{font-size:12px;font-weight:bold;color:#3a5a90;margin-top:1px;}
-  .param-val.active{color:#6a9aef;}
-  .param-unit{font-size:6px;color:#1a2540;}
-  .param-bar{height:2px;background:#0a0e16;border-radius:1px;margin-top:3px;overflow:hidden;}
-  .param-bar-fill{height:100%;border-radius:1px;transition:width 0.1s;}
+  #detail{height:170px;background:linear-gradient(180deg,#0a0e18 0%,#060810 100%);border-top:1px solid #1a2240;display:flex;flex-direction:row;overflow:hidden;flex-shrink:0;border-radius:14px 14px 0 0;margin:0 6px;box-shadow:0 -4px 20px rgba(0,0,0,0.5),inset 0 1px 0 rgba(58,106,223,0.08);}
+  #detail-header{display:none;}
+  #detail-body{flex:1;overflow:hidden;padding:0;display:flex;flex-direction:row;}
+  #no-select{display:flex;align-items:center;justify-content:center;color:#1a2030;font-size:10px;letter-spacing:3px;text-align:center;padding:16px;width:100%;}
+  #detail-content{display:none;flex-direction:row;align-items:stretch;width:100%;}
+  .det-top{padding:4px 10px;border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;justify-content:center;align-items:center;flex-shrink:0;background:rgba(58,106,223,0.03);border-radius:12px 0 0 0;gap:2px;width:70px;}
+  .det-name{font-size:18px;font-weight:bold;color:#c8d4f0;letter-spacing:2px;}
+  .det-type{font-size:5px;color:#3a5580;letter-spacing:1px;display:none;}
+  .det-dim{font-size:13px;font-weight:bold;color:#3a6adf;letter-spacing:1px;line-height:1;text-shadow:0 0 12px rgba(58,106,223,0.3);}
+  .det-dim-label{font-size:5px;color:#3a5580;letter-spacing:1px;}
+  .mh-wrap{position:relative;width:150px;height:100%;background:#030406;border-right:1px solid rgba(255,255,255,0.06);overflow:hidden;flex-shrink:0;}
+  .mh-wrap canvas{display:block;width:150px;height:100%;}
+  .color-strip{display:none;}
+  #d-param-sections{flex:1;display:flex;flex-wrap:wrap;align-content:flex-start;padding:4px 6px;gap:0;overflow-y:auto;}
+  .params-section{width:100%;display:flex;align-items:center;gap:3px;padding:1px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+  .params-section:last-child{border-bottom:none;}
+  .params-section-title{display:none;}
+  .params-grid{display:flex;gap:3px;flex:1;}
+  .param-box{background:rgba(10,14,24,0.7);border:1px solid rgba(255,255,255,0.08);border-radius:5px;padding:1px 4px;text-align:center;flex:1;min-width:0;max-width:20%;}
+  .param-box.active{border-color:rgba(58,106,223,0.3);background:rgba(58,106,223,0.06);}
+  .param-label{font-size:6px;color:#3a5580;letter-spacing:1px;text-transform:uppercase;}
+  .param-val{font-size:10px;font-weight:bold;color:#5a8acf;line-height:1.1;}
+  .param-val.active{color:#8ab4ff;text-shadow:0 0 8px rgba(58,106,223,0.3);}
+  .param-unit{font-size:5px;color:#2a4060;}
+  .param-bar{height:1px;background:rgba(10,14,24,0.8);border-radius:1px;margin-top:1px;overflow:hidden;}
+  .param-bar-fill{height:100%;border-radius:2px;transition:width 0.1s;}
   #footer{padding:4px 16px;background:#050508;border-top:1px solid #0e1220;font-size:8px;color:#1a2535;display:flex;justify-content:space-between;flex-shrink:0;}
 </style>
 </head>
@@ -321,8 +323,9 @@ function drawStage(W, H, layout) {
     if (tiltMode === 2) {
       // CENTER — beam straight down, glow spot at fixture
       const spotGrd = ctx.createRadialGradient(x, y, 0, x, y, spotR);
-      spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
-      spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+      spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.35 * d.dim})`);
+      spotGrd.addColorStop(0.4, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+      spotGrd.addColorStop(0.8, `rgba(${bR},${bG},${bB},${0.1 * d.dim})`);
       spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
       ctx.fillStyle = spotGrd;
       ctx.beginPath(); ctx.arc(x, y, spotR, 0, Math.PI*2); ctx.fill();
@@ -408,10 +411,11 @@ function drawStage(W, H, layout) {
         lineGrdB.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
         ctx.strokeStyle = lineGrdB;
         ctx.beginPath(); ctx.moveTo(gapBx, gapBy); ctx.lineTo(edgeBx, edgeBy); ctx.stroke();
-        // Floor spot circle
+        // Floor spot — flat wash
         const spotGrd = ctx.createRadialGradient(endX, endY, 0, endX, endY, spotR);
-        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
-        spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.35 * d.dim})`);
+        spotGrd.addColorStop(0.4, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        spotGrd.addColorStop(0.8, `rgba(${bR},${bG},${bB},${0.1 * d.dim})`);
         spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
         ctx.fillStyle = spotGrd;
         ctx.beginPath(); ctx.arc(endX, endY, spotR, 0, Math.PI*2); ctx.fill();
@@ -485,10 +489,11 @@ function drawStage(W, H, layout) {
           else ctx.lineTo(endX+Math.cos(-Math.PI/3)*gs*0.6, endY+Math.sin(-Math.PI/3)*gs*0.6);
           ctx.stroke();
         }
-        // Floor spot — gobo shape (no circle)
+        // Floor spot — gobo shape (flat wash)
         const spotGrd = ctx.createRadialGradient(endX, endY, 0, endX, endY, spotR);
-        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.85 * d.dim})`);
-        spotGrd.addColorStop(0.6, `rgba(${bR},${bG},${bB},${0.4 * d.dim})`);
+        spotGrd.addColorStop(0, `rgba(${bR},${bG},${bB},${0.35 * d.dim})`);
+        spotGrd.addColorStop(0.4, `rgba(${bR},${bG},${bB},${0.25 * d.dim})`);
+        spotGrd.addColorStop(0.8, `rgba(${bR},${bG},${bB},${0.1 * d.dim})`);
         spotGrd.addColorStop(1, `rgba(${bR},${bG},${bB},0)`);
         ctx.fillStyle = spotGrd;
         ctx.beginPath();
@@ -657,7 +662,7 @@ const mhCtx = mhCanvas.getContext('2d');
 
 function drawMovingHead(d) {
   const dpr = window.devicePixelRatio || 1;
-  const w = 300, h = 260;
+  const w = 150, h = 185;
   if (mhCanvas.width !== w*dpr || mhCanvas.height !== h*dpr) {
     mhCanvas.width = w * dpr;
     mhCanvas.height = h * dpr;
