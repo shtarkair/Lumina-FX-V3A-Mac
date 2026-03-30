@@ -424,6 +424,353 @@ const CurvePath = React.memo(function CurvePath({ cue, w, h, color, isActive }) 
   );
 });
 
+// ─── Full-Screen Curve Editor ───
+function CurveEditor({ cue, param, setCues, onClose }) {
+  const PAD_L=50, PAD_R=16, PAD_T=12, PAD_B=24;
+  const containerRef = useRef(null);
+  const [size, setSize] = useState({w:600,h:300});
+  const SEGMENT_CURVES = ["linear","sCurve","easeIn","easeOut"];
+  const SEGMENT_LABELS = {linear:"/",sCurve:"S",easeIn:"~>",easeOut:"<~"};
+  // Points now have optional .curve for the segment AFTER this point
+  const [points, setPoints] = useState(() => {
+    if (cue.autoPoints && cue.autoPoints.length > 0) {
+      return cue.autoPoints.map(p => ({t:p.t, v:p.v, curve:p.curve||"linear"}));
+    }
+    const startV = cue.startValue !== undefined ? cue.startValue : cue.value;
+    const endV = cue.endValue !== undefined ? cue.endValue : cue.value;
+    return [
+      { t: 0, v: startV, curve:"linear" },
+      { t: cue.duration * 0.5, v: cue.value, curve:"linear" },
+      { t: cue.duration, v: endV, curve:"linear" }
+    ];
+  });
+  const dragIdxRef = useRef(null);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const [segMenu, setSegMenu] = useState(null); // {idx, x, y}
+  const [activeCurve, setActiveCurve] = useState("linear"); // selected curve tool
+  const [presetMenu, setPresetMenu] = useState(false);
+  const [presets, setPresets] = useState(() => { try { return JSON.parse(localStorage.getItem("lumina-curve-presets")||"[]"); } catch(e){ return []; }});
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+
+  // Normalize points to 0-1 range for storage
+  const normalizePoints = (pts) => pts.map(p => ({ t: dur > 0 ? p.t / dur : 0, v: range > 0 ? (p.v - param.min) / range : 0, curve: p.curve || "linear" }));
+  // Scale normalized points to current cue
+  const denormalizePoints = (pts) => pts.map(p => ({ t: p.t * dur, v: param.min + p.v * range, curve: p.curve || "linear" }));
+
+  const savePreset = () => {
+    const name = prompt("Preset name:");
+    if (!name) return;
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    const preset = { name, points: normalizePoints(sorted), created: Date.now() };
+    const updated = [...presets.filter(p => p.name !== name), preset];
+    setPresets(updated);
+    try { localStorage.setItem("lumina-curve-presets", JSON.stringify(updated)); } catch(e){}
+  };
+
+  const loadPreset = (preset) => {
+    setPoints(denormalizePoints(preset.points));
+    setPresetMenu(false);
+  };
+
+  const deletePreset = (name, e) => {
+    e.stopPropagation();
+    const updated = presets.filter(p => p.name !== name);
+    setPresets(updated);
+    try { localStorage.setItem("lumina-curve-presets", JSON.stringify(updated)); } catch(e2){}
+  };
+
+  const exportCurve = () => {
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    const data = { name: "curve", version: 1, points: normalizePoints(sorted), paramType: param.id, created: Date.now() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "curve.lumina-curve"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importCurve = () => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".lumina-curve,.json";
+    input.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (data.points && data.points.length > 0) setPoints(denormalizePoints(data.points));
+        } catch(err) { console.error("Invalid curve file", err); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  useEffect(() => {
+    const measure = () => {
+      if (!containerRef.current) return;
+      const r = containerRef.current.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
+    };
+    const t = setTimeout(measure, 50);
+    window.addEventListener("resize", measure);
+    return () => { clearTimeout(t); window.removeEventListener("resize", measure); };
+  }, []);
+
+  const gW = Math.max(1, size.w - PAD_L - PAD_R);
+  const gH = Math.max(1, size.h - PAD_T - PAD_B);
+  const range = param.max - param.min || 1;
+  const dur = cue.duration || 1;
+
+  const tToX = t => PAD_L + (t / dur) * gW;
+  const vToY = v => PAD_T + (1 - (v - param.min) / range) * gH;
+  const xToT = x => Math.max(0, Math.min(dur, ((x - PAD_L) / gW) * dur));
+  const yToV = y => Math.max(param.min, Math.min(param.max, param.min + (1 - (y - PAD_T) / gH) * range));
+
+  const findPoint = (mx, my) => {
+    const pts = pointsRef.current;
+    for (let i = 0; i < pts.length; i++) {
+      const px = tToX(pts[i].t), py = vToY(pts[i].v);
+      if (Math.abs(mx - px) < 12 && Math.abs(my - py) < 12) return i;
+    }
+    return -1;
+  };
+
+  // Find which segment a click lands on (for right-click curve menu)
+  const findSegment = (mx, my) => {
+    const pts = pointsRef.current;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const x1 = tToX(pts[i].t), x2 = tToX(pts[i+1].t);
+      if (mx >= x1 && mx <= x2 && my >= PAD_T && my <= PAD_T + gH) return i;
+    }
+    return -1;
+  };
+
+  const handleMouseDown = (e) => {
+    if (segMenu) { setSegMenu(null); return; }
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const idx = findPoint(mx, my);
+    if (idx >= 0) { dragIdxRef.current = idx; setDragIdx(idx); return; }
+    if (mx >= PAD_L && mx <= PAD_L + gW && my >= PAD_T && my <= PAD_T + gH) {
+      // Check if clicking on a segment to apply curve type
+      const segIdx = findSegment(mx, my);
+      if (segIdx >= 0 && activeCurve !== "linear") {
+        setPoints(prev => { const s = [...prev].sort((a,b)=>a.t-b.t); if(segIdx<s.length) s[segIdx]={...s[segIdx], curve:activeCurve}; return s; });
+        return;
+      }
+      const t = xToT(mx), v = yToV(my);
+      setPoints(prev => [...prev, { t, v, curve:"linear" }].sort((a, b) => a.t - b.t));
+    }
+  };
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    // Check if right-clicking a point — delete it
+    const ptIdx = findPoint(mx, my);
+    if (ptIdx >= 0) { setPoints(prev => prev.filter((_, j) => j !== ptIdx)); return; }
+    // Check if right-clicking a segment — show curve menu
+    const segIdx = findSegment(mx, my);
+    if (segIdx >= 0) setSegMenu({ idx: segIdx, x: e.clientX - rect.left, y: e.clientY - rect.top });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const di = dragIdxRef.current;
+    if (di !== null) {
+      const t = xToT(mx), v = yToV(my);
+      setPoints(prev => {
+        const updated = prev.map((p, i) => i === di ? { ...p, t, v } : p);
+        updated.sort((a, b) => a.t - b.t);
+        const newIdx = updated.findIndex(p => p.t === t && p.v === v);
+        if (newIdx >= 0 && newIdx !== di) { dragIdxRef.current = newIdx; setDragIdx(newIdx); }
+        return updated;
+      });
+    } else {
+      const idx = findPoint(mx, my);
+      setHoverIdx(idx >= 0 ? idx : null);
+    }
+  };
+
+  const handleMouseUp = () => { dragIdxRef.current = null; setDragIdx(null); };
+
+  const handleDblClick = (e) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const idx = findPoint(mx, my);
+    if (idx >= 0) setPoints(prev => prev.filter((_, j) => j !== idx));
+  };
+
+  const handleSave = () => {
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    // Expand curved segments into dense autoPoints for smooth playback
+    const expanded = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const p = sorted[i], pn = sorted[i+1];
+      const curve = p.curve || "linear";
+      const steps = curve === "linear" ? 1 : 8;
+      for (let s = 0; s <= (i === sorted.length - 2 ? steps : steps - 1); s++) {
+        const frac = s / steps;
+        const t = p.t + frac * (pn.t - p.t);
+        let v;
+        if (curve === "linear") { v = p.v + frac * (pn.v - p.v); }
+        else { const ef = EASINGS[curve]?.fn || (x=>x); v = p.v + ef(frac) * (pn.v - p.v); }
+        expanded.push({ t, v });
+      }
+    }
+    if (sorted.length === 1) expanded.push({ t: sorted[0].t, v: sorted[0].v });
+    setCues(prev => prev.map(c => c.id === cue.id ? { ...c, autoPoints: expanded.length > 0 ? expanded : undefined } : c));
+    onClose();
+  };
+
+  const handleClear = () => { setPoints([]); };
+
+  const sorted = useMemo(() => [...points].sort((a, b) => a.t - b.t), [points]);
+
+  // Build curve path with easing per segment
+  const curvePath = useMemo(() => {
+    if (sorted.length < 2) return "";
+    const segs = ["M " + tToX(sorted[0].t).toFixed(1) + "," + vToY(sorted[0].v).toFixed(1)];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const p = sorted[i], pn = sorted[i+1];
+      const curve = p.curve || "linear";
+      if (curve === "linear") {
+        segs.push("L " + tToX(pn.t).toFixed(1) + "," + vToY(pn.v).toFixed(1));
+      } else {
+        const ef = EASINGS[curve]?.fn || (x=>x);
+        const steps = 12;
+        for (let s = 1; s <= steps; s++) {
+          const frac = s / steps;
+          const t = p.t + frac * (pn.t - p.t);
+          const v = p.v + ef(frac) * (pn.v - p.v);
+          segs.push("L " + tToX(t).toFixed(1) + "," + vToY(v).toFixed(1));
+        }
+      }
+    }
+    return segs.join(" ");
+  }, [sorted, size.w, size.h]);
+
+  const vSteps = range <= 20 ? Math.round(range) : range <= 100 ? 10 : 8;
+  const vLines = Array.from({ length: vSteps + 1 }, (_, i) => {
+    const v = param.min + (i / vSteps) * range;
+    return { v, y: vToY(v) };
+  });
+
+  const beatLines = [];
+  const beatStep = dur > 32 ? 4 : dur > 8 ? 1 : 0.25;
+  for (let b = 0; b <= dur; b += beatStep) {
+    beatLines.push({ t: b, x: tToX(b), major: b % 1 === 0 });
+  }
+
+  return (
+    <div style={{position:"fixed",top:60,left:220,right:16,bottom:280,zIndex:10010,display:"flex",flexDirection:"column",background:"rgba(8,12,20,0.35)",backdropFilter:"blur(8px) saturate(1.1)",WebkitBackdropFilter:"blur(8px) saturate(1.1)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:14,boxShadow:"0 12px 48px rgba(0,0,0,0.6),inset 0 1px 0 rgba(255,255,255,0.06)",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 14px",borderBottom:"1px solid rgba(255,255,255,0.06)",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:10,fontWeight:"bold",color:param.color,letterSpacing:2}}>CURVE EDITOR</span>
+          <span style={{fontSize:9,color:"#556"}}>{param.label.toUpperCase()} &middot; {cue.duration.toFixed(2)}b</span>
+          <span style={{fontSize:8,color:"#334"}}>{points.length} pts</span>
+        </div>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {SEGMENT_CURVES.map(c => (
+            <button key={c} onClick={()=>setActiveCurve(c)} style={{minWidth:44,minHeight:44,padding:"6px 0",fontSize:14,fontWeight:"bold",background:activeCurve===c?param.color+"22":"#1a1e28",border:"1px solid "+(activeCurve===c?param.color:"#252930"),color:activeCurve===c?param.color:"#666",borderRadius:8,cursor:"pointer",fontFamily:"monospace",touchAction:"manipulation",display:"flex",alignItems:"center",justifyContent:"center"}}>{SEGMENT_LABELS[c]}</button>
+          ))}
+          <button onClick={()=>setPoints(prev=>{const s=[...prev].sort((a,b)=>a.t-b.t);return s.map(p=>({...p,curve:activeCurve}));})} style={{minWidth:44,minHeight:44,padding:"6px 0",fontSize:10,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#666",borderRadius:8,cursor:"pointer",fontFamily:"monospace",touchAction:"manipulation",display:"flex",alignItems:"center",justifyContent:"center"}}>ALL</button>
+          <div style={{width:1,height:32,background:"rgba(255,255,255,0.08)",margin:"0 4px"}}/>
+          <button onClick={()=>setPresetMenu(v=>!v)} style={{minWidth:50,minHeight:44,padding:"6px 8px",background:presetMenu?"rgba(204,136,255,0.15)":"#1a1e28",border:"1px solid "+(presetMenu?"#cc88ff":"#252930"),color:presetMenu?"#cc88ff":"#666",cursor:"pointer",fontSize:10,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",touchAction:"manipulation",position:"relative"}}>{"\u2630"}</button>
+          <button onClick={savePreset} style={{minWidth:50,minHeight:44,padding:"6px 6px",background:"rgba(204,136,255,0.08)",border:"1px solid rgba(204,136,255,0.3)",color:"#cc88ff",cursor:"pointer",fontSize:9,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,touchAction:"manipulation"}}>PRE</button>
+          <button onClick={exportCurve} style={{minWidth:44,minHeight:44,padding:"6px 6px",background:"rgba(68,170,255,0.08)",border:"1px solid rgba(68,170,255,0.3)",color:"#44aaff",cursor:"pointer",fontSize:9,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,touchAction:"manipulation"}}>EXP</button>
+          <button onClick={importCurve} style={{minWidth:44,minHeight:44,padding:"6px 6px",background:"rgba(255,170,68,0.08)",border:"1px solid rgba(255,170,68,0.3)",color:"#ffaa44",cursor:"pointer",fontSize:9,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,touchAction:"manipulation"}}>IMP</button>
+          <div style={{width:1,height:32,background:"rgba(255,255,255,0.08)",margin:"0 4px"}}/>
+          <button onClick={handleClear} style={{minWidth:50,minHeight:44,padding:"6px 8px",background:"rgba(255,68,68,0.08)",border:"1px solid rgba(255,68,68,0.3)",color:"#ff6666",cursor:"pointer",fontSize:11,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,touchAction:"manipulation"}}>CLR</button>
+          <button onClick={handleSave} style={{minWidth:50,minHeight:44,padding:"6px 8px",background:"rgba(68,255,102,0.08)",border:"1px solid rgba(68,255,102,0.3)",color:"#44ff88",cursor:"pointer",fontSize:11,borderRadius:8,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,touchAction:"manipulation"}}>SAVE</button>
+          <button onClick={onClose} style={{minWidth:44,minHeight:44,padding:"6px 8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",color:"#666",cursor:"pointer",fontSize:11,borderRadius:8,fontFamily:"monospace",letterSpacing:1,touchAction:"manipulation"}}>{"\u2715"}</button>
+        </div>
+      </div>
+      {/* Canvas area */}
+      <div ref={containerRef} style={{flex:1,position:"relative",cursor:dragIdx!==null?"grabbing":hoverIdx!==null?"grab":"crosshair",userSelect:"none"}}
+        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onDoubleClick={handleDblClick} onContextMenu={handleContextMenu}>
+        <svg width="100%" height="100%" style={{display:"block"}}>
+          {vLines.map((l, i) => (
+            <g key={"v"+i}>
+              <line x1={PAD_L} y1={l.y} x2={PAD_L+gW} y2={l.y} stroke="rgba(255,255,255,0.04)" strokeWidth={0.5}/>
+              <text x={PAD_L-4} y={l.y+3} textAnchor="end" fill="#334" fontSize={7} fontFamily="'Courier New',monospace">{Math.round(l.v)}</text>
+            </g>
+          ))}
+          {beatLines.map((l, i) => (
+            <g key={"b"+i}>
+              <line x1={l.x} y1={PAD_T} x2={l.x} y2={PAD_T+gH} stroke={l.major?"rgba(255,255,255,0.06)":"rgba(255,255,255,0.02)"} strokeWidth={l.major?1:0.5}/>
+              {l.major && <text x={l.x} y={PAD_T+gH+12} textAnchor="middle" fill="#334" fontSize={7} fontFamily="'Courier New',monospace">{l.t.toFixed(0)}</text>}
+            </g>
+          ))}
+          <rect x={PAD_L} y={PAD_T} width={gW} height={gH} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} rx={4}/>
+          {/* Fill under curve */}
+          {curvePath && <path d={curvePath + ` L ${tToX(sorted[sorted.length-1]?.t||0)},${PAD_T+gH} L ${PAD_L},${PAD_T+gH} Z`} fill={param.color+"08"}/>}
+          {/* Active curve */}
+          {curvePath && <path d={curvePath} fill="none" stroke={param.color} strokeWidth={2} opacity={0.8}/>}
+          {/* Segment curve type labels */}
+          {sorted.map((p, i) => {
+            if (i >= sorted.length - 1) return null;
+            const pn = sorted[i+1];
+            const cx = (tToX(p.t) + tToX(pn.t)) / 2;
+            const cy = PAD_T + gH + 1;
+            const curve = p.curve || "linear";
+            if (curve === "linear") return null;
+            return <text key={"sl"+i} x={cx} y={cy} textAnchor="middle" fill={param.color+"66"} fontSize={7} fontFamily="'Courier New',monospace">{SEGMENT_LABELS[curve]}</text>;
+          })}
+          {/* Control points */}
+          {sorted.map((p, i) => {
+            const px = tToX(p.t), py = vToY(p.v);
+            const isHover = hoverIdx === i;
+            const isDrag = dragIdx === i;
+            return (
+              <g key={i}>
+                <circle cx={px} cy={py} r={isDrag ? 6 : isHover ? 5 : 3.5} fill={isDrag ? "#fff" : param.color} stroke="#fff" strokeWidth={isDrag ? 2 : 1} opacity={isDrag ? 1 : isHover ? 0.9 : 0.7}/>
+                {(isHover || isDrag) && <text x={px} y={py-10} textAnchor="middle" fill="#ccc" fontSize={8} fontFamily="'Courier New',monospace">{p.v.toFixed(1)}</text>}
+              </g>
+            );
+          })}
+        </svg>
+        {/* Segment curve type popup */}
+        {segMenu && <div style={{position:"absolute",left:segMenu.x-40,top:segMenu.y-10,background:"rgba(10,14,24,0.9)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:4,display:"flex",gap:3,zIndex:10}}>
+          {SEGMENT_CURVES.map(c => (
+            <button key={c} onClick={()=>{setPoints(prev=>{const s=[...prev].sort((a,b)=>a.t-b.t);if(segMenu.idx<s.length)s[segMenu.idx]={...s[segMenu.idx],curve:c};return s;});setSegMenu(null);}}
+              style={{padding:"3px 8px",fontSize:8,fontWeight:"bold",background:sorted[segMenu.idx]?.curve===c?"rgba(255,255,255,0.1)":"transparent",border:"1px solid "+(sorted[segMenu.idx]?.curve===c?param.color+"66":"rgba(255,255,255,0.08)"),color:sorted[segMenu.idx]?.curve===c?param.color:"#666",borderRadius:5,cursor:"pointer",fontFamily:"'Courier New',monospace",letterSpacing:1}}>
+              {SEGMENT_LABELS[c]} {c.toUpperCase()}
+            </button>
+          ))}
+        </div>}
+        {presetMenu && <div style={{position:"absolute",top:4,right:4,background:"rgba(10,14,24,0.92)",backdropFilter:"blur(16px)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:10,padding:8,zIndex:20,minWidth:200,maxHeight:"90%",overflowY:"auto"}}>
+          <div style={{fontSize:8,color:"#556",letterSpacing:2,marginBottom:6,padding:"0 4px"}}>CURVE PRESETS</div>
+          {presets.length === 0 && <div style={{fontSize:9,color:"#334",padding:"12px 4px",textAlign:"center"}}>No presets saved yet</div>}
+          {presets.map((p, i) => (
+            <div key={i} onClick={()=>loadPreset(p)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 8px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,marginBottom:3,cursor:"pointer",touchAction:"manipulation"}}>
+              <div>
+                <div style={{fontSize:11,color:"#aab",fontWeight:"bold"}}>{p.name}</div>
+                <div style={{fontSize:7,color:"#445"}}>{p.points.length} pts</div>
+              </div>
+              <button onClick={(e)=>deletePreset(p.name,e)} style={{background:"none",border:"none",color:"#ff444488",cursor:"pointer",fontSize:12,padding:"2px 6px",touchAction:"manipulation"}}>{"\u2715"}</button>
+            </div>
+          ))}
+          <div style={{borderTop:"1px solid rgba(255,255,255,0.06)",marginTop:6,paddingTop:6,display:"flex",gap:4}}>
+            <button onClick={()=>{exportCurve();setPresetMenu(false);}} style={{flex:1,minHeight:36,background:"rgba(68,170,255,0.08)",border:"1px solid rgba(68,170,255,0.3)",color:"#44aaff",borderRadius:6,cursor:"pointer",fontSize:9,fontWeight:"bold",fontFamily:"monospace",touchAction:"manipulation"}}>EXPORT</button>
+            <button onClick={()=>{importCurve();setPresetMenu(false);}} style={{flex:1,minHeight:36,background:"rgba(255,170,68,0.08)",border:"1px solid rgba(255,170,68,0.3)",color:"#ffaa44",borderRadius:6,cursor:"pointer",fontSize:9,fontWeight:"bold",fontFamily:"monospace",touchAction:"manipulation"}}>IMPORT</button>
+          </div>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
 const EFFECT_TYPES = [
   { id:"chase", label:"Chase", icon:"\u21C6", desc:"Sequential across fixtures" },
   { id:"sine", label:"Sine", icon:"\u223F", desc:"Smooth oscillation" },
@@ -437,6 +784,7 @@ const EFFECT_TYPES = [
   { id:"ballyhoo", label:"Ballyhoo", icon:"\u27F3", desc:"Circular pan+tilt motion" },
   { id:"flyTilt", label:"Fly Tilt", icon:"\u2B06", desc:"Dim+tilt fly in/out" },
   { id:"flyPan", label:"Fly Pan", icon:"\u2B05", desc:"Dim+pan fly in/out" },
+  { id:"customCurve", label:"Custom", icon:"\u270E", desc:"Saved curve preset" },
 ];
 
 function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfade, rangeMin, rangeMax, easing, startBeat, endBeat }) {
@@ -587,19 +935,58 @@ function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfad
         }
       }
     });
+  } else if (effectType === "customCurve") {
+    // Load preset from localStorage, apply normalized points as autoPoints
+    let presetPts = [];
+    try {
+      const allPresets = JSON.parse(localStorage.getItem("lumina-curve-presets") || "[]");
+      const sel = localStorage.getItem("lumina-fx-curvepreset");
+      const preset = allPresets.find(p => p.name === sel);
+      if (preset) presetPts = preset.points;
+    } catch(e){}
+    if (presetPts.length < 2) return cues;
+    const range = hi - lo;
+    fixtures.forEach((fx, fi) => {
+      const phaseOff = spread * (fi / n);
+      // Repeat curve based on speed
+      const cycles = Math.max(1, Math.round(speed));
+      const cycleDur = dur / cycles;
+      for (let c = 0; c < cycles; c++) {
+        const cycleStart = startBeat + c * cycleDur;
+        const expanded = [];
+        for (let i = 0; i < presetPts.length - 1; i++) {
+          const p = presetPts[i], pn = presetPts[i + 1];
+          const curve = p.curve || "linear";
+          const steps = curve === "linear" ? 1 : 8;
+          for (let s = 0; s <= (i === presetPts.length - 2 ? steps : steps - 1); s++) {
+            const frac = s / steps;
+            let tNorm = p.t + frac * (pn.t - p.t);
+            // Apply phase offset — shift and wrap
+            tNorm = (tNorm + phaseOff) % 1;
+            const vNorm = curve === "linear" ? p.v + frac * (pn.v - p.v) : p.v + (EASINGS[curve]?.fn || (x=>x))(frac) * (pn.v - p.v);
+            expanded.push({ t: tNorm * cycleDur, v: lo + vNorm * range });
+          }
+        }
+        expanded.sort((a, b) => a.t - b.t);
+        if (expanded.length >= 2) {
+          cues.push({ id:genId(), batchId, fixtureId:fx.id, param:paramId, beat:cycleStart, duration:cycleDur, value:expanded[0].v, easing:"linear", fadeIn:0, fadeOut:0, startValue:expanded[0].v, endValue:expanded[expanded.length-1].v, autoPoints:expanded });
+        }
+      }
+    });
   }
   return cues;
 }
 
-const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, setCues, loopStart, loopEnd, fxStart, fxEnd, setExpandedFixtures, setExpandedGroups, onSelectionChange, onPreviewChange, autoDissolve }) {
-  const [selFixtures, setSelFixtures] = useState(() => new Set(fixtures.slice(0,4).map(f=>f.id)));
-  useEffect(()=>{ if(onSelectionChange) onSelectionChange(selFixtures); }, [selFixtures]);
+const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, setCues, loopStart, loopEnd, fxStart, fxEnd, setFxEnd, setExpandedFixtures, setExpandedGroups, onSelectionChange, onPreviewChange, autoDissolve }) {
+  const [selFixtures, setSelFixtures] = useState(() => { try { const s=localStorage.getItem("lumina-fx-selfixtures"); if(s){ const ids=JSON.parse(s); const valid=ids.filter(id=>fixtures.some(f=>f.id===id)); if(valid.length>0) return new Set(valid); } } catch(e){} return new Set(fixtures.slice(0,4).map(f=>f.id)); });
+  useEffect(()=>{ if(onSelectionChange) onSelectionChange(selFixtures); try{localStorage.setItem("lumina-fx-selfixtures",JSON.stringify([...selFixtures]));}catch(e){} }, [selFixtures]);
   const [paramId, setParamId] = useState("dimmer");
   const [multiParamMode, setMultiParamMode] = useState(false);
   const [multiSelectedParams, setMultiSelectedParams] = useState(new Set(["dimmer"]));
   const [paramDropOpen, setParamDropOpen] = useState(false);
   const [paramDropRect, setParamDropRect] = useState({top:0,left:0,width:200});
   const [effectType, setEffectType] = useState("chase");
+  const [curvePresetName, setCurvePresetName] = useState(() => { try { return localStorage.getItem("lumina-fx-curvepreset")||""; } catch(e){ return ""; }});
   const [speed, setSpeed] = useState(4);
   const [offset, setOffset] = useState(100);
   const [easing, setEasing] = useState("linear");
@@ -608,6 +995,7 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
   const [easingPopupOpen, setEasingPopupOpen] = useState(false);
   const [lastBatchId, setLastBatchId] = useState(null);
   const [conflictPopup, setConflictPopup] = useState(null); // {newCues, conflicting, fxList}
+  const [cyclePopup, setCyclePopup] = useState(null); // {newCues, fxList, maxBeat}
   const param = getParam(paramId);
   const allParamIds = multiParamMode ? [...multiSelectedParams] : [paramId];
 
@@ -686,6 +1074,12 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
       return generateEffect({ effectType, fixtures:fxList, paramId:pid, speed, offset, crossfade, rangeMin: p.min, rangeMax: p.max, easing, startBeat: fxStart, endBeat: fxEnd });
     });
     if (newCues.length === 0) return;
+    // Check if any cues extend past fxEnd
+    const maxBeat = Math.max(...newCues.map(c => c.beat + c.duration));
+    if (maxBeat > fxEnd + 0.01) {
+      setCyclePopup({ newCues, fxList, maxBeat });
+      return;
+    }
     const fxIds = new Set(fxList.map(f=>f.id));
     const paramIds = new Set(newCues.map(c=>c.param));
     const conflicting = cues.filter(c => fxIds.has(c.fixtureId) && paramIds.has(c.param) && c.beat + c.duration > fxStart && c.beat < fxEnd);
@@ -694,6 +1088,29 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
     } else {
       doApply(newCues, fxList, "merge");
     }
+  };
+  const applyCycle = () => {
+    if (!cyclePopup) return;
+    const { newCues, fxList } = cyclePopup;
+    const range = fxEnd - fxStart;
+    // Trim and wrap cues to fit within fxStart-fxEnd
+    const cycledCues = [];
+    newCues.forEach(c => {
+      let b = c.beat, d = c.duration;
+      // Wrap beat into range
+      while (b >= fxEnd) b -= range;
+      while (b + d > fxEnd) d = fxEnd - b;
+      if (d > 0.01) cycledCues.push({ ...c, beat: b, duration: d });
+    });
+    doApply(cycledCues, fxList, "merge");
+    setCyclePopup(null);
+  };
+  const applyTimeline = () => {
+    if (!cyclePopup) return;
+    const { newCues, fxList, maxBeat } = cyclePopup;
+    if (setFxEnd) setFxEnd(Math.ceil(maxBeat));
+    doApply(newCues, fxList, "merge");
+    setCyclePopup(null);
   };
 
   const handleUndo = () => {
@@ -946,6 +1363,27 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
         </div>
       </div>
 
+      {effectType === "customCurve" && (() => {
+        let curvePresets = [];
+        try { curvePresets = JSON.parse(localStorage.getItem("lumina-curve-presets")||"[]"); } catch(e){}
+        return <div style={{borderTop:"1px solid #1e222a",paddingTop:6,marginBottom:4}}>
+          <div style={{fontSize:8,color:"#556",letterSpacing:2,marginBottom:6}}>CURVE PRESET</div>
+          {curvePresets.length === 0 ? <div style={{fontSize:9,color:"#334",padding:"8px 0",textAlign:"center"}}>No presets saved. Use EDIT CURVE in CUE tab to create presets.</div>
+          : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+            {curvePresets.map(p => (
+              <button key={p.name} onClick={()=>{setCurvePresetName(p.name);try{localStorage.setItem("lumina-fx-curvepreset",p.name);}catch(e){}}} style={{
+                padding:"10px 8px",fontSize:11,fontWeight:"bold",
+                background:curvePresetName===p.name?"#cc88ff22":"#0c0e12",
+                border:"1px solid "+(curvePresetName===p.name?"#cc88ff":"#252930"),
+                color:curvePresetName===p.name?"#cc88ff":"#666",
+                borderRadius:8,cursor:"pointer",touchAction:"manipulation",
+                minHeight:44,textAlign:"center"
+              }}>{p.name}<div style={{fontSize:7,color:"#445",marginTop:2}}>{p.points.length} pts</div></button>
+            ))}
+          </div>}
+        </div>;
+      })()}
+
       <div style={{borderTop:"1px solid #1e222a",paddingTop:4}}>
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
           <div>
@@ -1011,6 +1449,17 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
             <button onClick={()=>doApply(conflictPopup.newCues,conflictPopup.fxList,"clear")} style={{padding:"8px 0",background:"#ff444422",border:"1px solid #ff4444",color:"#ff6644",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:"bold",letterSpacing:1}}>CLEAR &amp; APPLY<div style={{fontSize:8,color:"#ff664488",marginTop:2}}>Remove all cues in range, then apply</div></button>
             <button onClick={()=>doApply(conflictPopup.newCues,conflictPopup.fxList,"merge")} style={{padding:"8px 0",background:"#44ff4422",border:"1px solid #44ff44",color:"#44ff88",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:"bold",letterSpacing:1}}>MERGE<div style={{fontSize:8,color:"#44ff8888",marginTop:2}}>Keep existing cues, add new on top</div></button>
             <button onClick={()=>setConflictPopup(null)} style={{padding:"6px 0",background:"#1a1e26",border:"1px solid #333",color:"#666",borderRadius:8,cursor:"pointer",fontSize:10,letterSpacing:1}}>CANCEL</button>
+          </div>
+        </div>
+      </div>}
+      {cyclePopup && <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.7)",animation:"backdropIn 0.2s ease-out"}} onClick={()=>setCyclePopup(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#0e1018",border:"1px solid #aa66ff44",borderRadius:8,padding:16,width:320,boxShadow:"0 8px 40px rgba(0,0,0,0.8)",animation:"popIn 0.2s ease-out"}}>
+          <div style={{fontSize:12,fontWeight:"bold",color:"#aa66ff",marginBottom:8,letterSpacing:2,textAlign:"center"}}>{"\u27F3"} EFFECT OVERFLOW</div>
+          <div style={{fontSize:10,color:"#888",marginBottom:12,textAlign:"center"}}>Effect extends to beat {cyclePopup.maxBeat.toFixed(1)} (FX range ends at {fxEnd})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <button onClick={applyCycle} style={{padding:"8px 0",background:"#aa66ff18",border:"1px solid #aa66ff",color:"#cc88ff",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:"bold",letterSpacing:1}}>CYCLE EFFECT<div style={{fontSize:8,color:"#aa66ff88",marginTop:2}}>Loop within FX range</div></button>
+            <button onClick={applyTimeline} style={{padding:"8px 0",background:"#44ff4422",border:"1px solid #44ff44",color:"#44ff88",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:"bold",letterSpacing:1}}>TIMELINE EFFECT<div style={{fontSize:8,color:"#44ff8888",marginTop:2}}>Extend FX range to fit</div></button>
+            <button onClick={()=>setCyclePopup(null)} style={{padding:"6px 0",background:"#1a1e26",border:"1px solid #333",color:"#666",borderRadius:8,cursor:"pointer",fontSize:10,letterSpacing:1}}>CANCEL</button>
           </div>
         </div>
       </div>}
@@ -2212,44 +2661,42 @@ function LightingTimeline() {
     setCues(prev => {
       const sel = prev.filter(c => curSel.has(c.id));
       if(sel.length < 2) return prev;
-      // Sort all selected by beat
-      sel.sort((a, b) => a.beat - b.beat);
-      // Create a dissolve cue between each consecutive pair
+      // Group by lane (fixture+param) so dissolves stay within each fixture
+      const lanes = {};
+      sel.forEach(c => { const k = c.fixtureId+"-"+c.param; (lanes[k]=lanes[k]||[]).push(c); });
       const newCues = [];
-      for(let i = 0; i < sel.length - 1; i++) {
-        const cur = sel[i];
-        const next = sel[i + 1];
-        const curEnd = cur.beat + cur.duration;
-        const nextStart = next.beat;
-        const startVal = cur.value;
-        const endVal = next.value;
-        const beat = curEnd;
-        const dur = Math.max(0.5, nextStart - curEnd);
-        const same = startVal === endVal;
-        newCues.push({
-          id: genId(),
-          fixtureId: cur.fixtureId,
-          param: cur.param,
-          beat: beat,
-          duration: dur,
-          value: startVal,
-          easing: same ? "linear" : "sCurve",
-          fadeIn: 0,
-          fadeOut: same ? 0 : 1,
-          startValue: startVal,
-          endValue: endVal,
-        });
-      }
-      // Update adjacent selected cues so they stay flat where dissolve connects
       const updates = {};
-      for(let i = 0; i < sel.length - 1; i++) {
-        const cur = sel[i];
-        const next = sel[i + 1];
-        // First cue: make endValue match its value (stay flat at end)
-        updates[cur.id] = { ...(updates[cur.id]||{}), endValue: cur.value, fadeOut: 0 };
-        // Next cue: make startValue match its value (stay flat at start)
-        updates[next.id] = { ...(updates[next.id]||{}), startValue: next.value, fadeIn: 0 };
-      }
+      Object.values(lanes).forEach(laneCues => {
+        if(laneCues.length < 2) return;
+        laneCues.sort((a, b) => a.beat - b.beat);
+        for(let i = 0; i < laneCues.length - 1; i++) {
+          const cur = laneCues[i];
+          const next = laneCues[i + 1];
+          const curEnd = cur.beat + cur.duration;
+          const nextStart = next.beat;
+          const startVal = cur.value;
+          const endVal = next.value;
+          const beat = curEnd;
+          const dur = Math.max(0.5, nextStart - curEnd);
+          const same = startVal === endVal;
+          newCues.push({
+            id: genId(),
+            fixtureId: cur.fixtureId,
+            param: cur.param,
+            beat: beat,
+            duration: dur,
+            value: startVal,
+            easing: same ? "linear" : "sCurve",
+            fadeIn: 0,
+            fadeOut: same ? 0 : 1,
+            startValue: startVal,
+            endValue: endVal,
+          });
+          updates[cur.id] = { ...(updates[cur.id]||{}), endValue: cur.value, fadeOut: 0 };
+          updates[next.id] = { ...(updates[next.id]||{}), startValue: next.value, fadeIn: 0 };
+        }
+      });
+      if(newCues.length === 0) return prev;
       // Remove existing cues that overlap with any new dissolve cue on the same lane
       const selIds = new Set(sel.map(c => c.id));
       const filtered = prev.filter(c => {
@@ -2303,6 +2750,7 @@ function LightingTimeline() {
   const [zoom,setZoom] = useState(1);
   const [selectedCue,setSelectedCue] = useState(null);
   const [selectedCues,setSelectedCues] = useState(new Set());
+  const [curveEditorCue,setCurveEditorCue] = useState(null);
   const [popupPos,setPopupPos] = useState(null);
   const [cuePopupDragPos,setCuePopupDragPos] = useState(null);
   const selectedCuesRef = useRef(new Set());
@@ -2329,6 +2777,7 @@ function LightingTimeline() {
   },[selectedCues,cues]);
   const [dragging,setDragging] = useState(null);
   const [resizing,setResizing] = useState(null);
+  const [dragOverlapPopup,setDragOverlapPopup] = useState(null); // {movedIds, overlaps:[{cue, type:"full"|"partial"}], preBeats}
   const [tool,setTool] = useState("select");
   const [bpm,setBpm] = useState(120);
   const tapTimesRef = useRef([]);
@@ -3542,6 +3991,35 @@ function LightingTimeline() {
         }
         setBoxSelect(null);
       }
+      // --- Overlap detection on drag end ---
+      const dr=draggingRef.current;
+      if(dr){
+        const curCues=cuesRef.current;
+        const movedIds=new Set(dr.multi?Object.keys(dr.startBeats):[dr.id]);
+        const movedCues=curCues.filter(c=>movedIds.has(c.id));
+        const overlaps=[];
+        movedCues.forEach(moved=>{
+          const laneKey=moved.fixtureId+"-"+moved.param;
+          const mL=moved.beat, mR=moved.beat+moved.duration;
+          curCues.forEach(other=>{
+            if(movedIds.has(other.id)) return;
+            if(other.fixtureId+"-"+other.param!==laneKey) return;
+            const oL=other.beat, oR=other.beat+other.duration;
+            if(mR>oL && mL<oR){
+              const fullyOverlapped = mL<=oL && mR>=oR;
+              if(!overlaps.find(o=>o.cue.id===other.id)){
+                overlaps.push({cue:other, type:fullyOverlapped?"full":"partial", movedCueId:moved.id});
+              }
+            }
+          });
+        });
+        if(overlaps.length>0){
+          const preBeats=dr.multi?{...dr.startBeats}:{[dr.id]:dr.startBeat};
+          setDragOverlapPopup({movedIds:[...movedIds], overlaps, preBeats});
+          setDragging(null);setResizing(null);
+          return;
+        }
+      }
       setDragging(null);setResizing(null);
     };
     const onTouchMove=e=>{const t=e.touches[0];onMove({clientX:t.clientX,clientY:t.clientY});};
@@ -4345,6 +4823,7 @@ function LightingTimeline() {
                         <line x1={0} y1={40} x2={200} y2={40} stroke="#1e222a" strokeWidth={1}/>
                       </svg>
                     </div>
+                    <button onClick={()=>setCurveEditorCue(selCue.id)} style={{marginTop:8,width:"100%",padding:"8px 0",background:"#0a0e18",border:"1px solid "+selParam.color+"44",color:selParam.color,borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",letterSpacing:2,fontFamily:"'Courier New',monospace"}}>EDIT CURVE {selCue.autoPoints?.length>0?`(${selCue.autoPoints.length} pts)`:""}</button>
                   </div>
                 </div>
               ):(
@@ -4353,7 +4832,7 @@ function LightingTimeline() {
             ):rightTab==="fx"?(
               <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
                 <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
-                  <EffectGenerator fixtures={fixtures} cues={cues} setCues={setCues} loopStart={loopStart} loopEnd={loopEnd} fxStart={fxStart} fxEnd={fxEnd} setExpandedFixtures={setExpandedFixtures} setExpandedGroups={setExpandedGroups} onSelectionChange={setFxSelectedFixtures} onPreviewChange={setFxGhostCues} autoDissolve={autoDissolve}/>
+                  <EffectGenerator fixtures={fixtures} cues={cues} setCues={setCues} loopStart={loopStart} loopEnd={loopEnd} fxStart={fxStart} fxEnd={fxEnd} setFxEnd={setFxEnd} setExpandedFixtures={setExpandedFixtures} setExpandedGroups={setExpandedGroups} onSelectionChange={setFxSelectedFixtures} onPreviewChange={setFxGhostCues} autoDissolve={autoDissolve}/>
                 </div>
               </div>
             ):rightTab==="seq"?(
@@ -7920,6 +8399,57 @@ function LightingTimeline() {
         <div style={{flex:1}}/>
         <span style={{fontSize:8,color:"#1e222a"}}>LUMINA FX v0.6-perf</span>
       </div>
+      {curveEditorCue && (() => { const ce = cues.find(c => c.id === curveEditorCue); const cp = ce ? getParam(ce.param) : null; return ce && cp ? <CurveEditor cue={ce} param={cp} setCues={setCues} onClose={() => setCurveEditorCue(null)}/> : null; })()}
+      {dragOverlapPopup && <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10006,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.7)",animation:"backdropIn 0.2s ease-out"}} onClick={()=>{
+        const pre=dragOverlapPopup.preBeats;
+        setCues(prev=>prev.map(c=>pre[c.id]!=null?{...c,beat:pre[c.id]}:c));
+        setDragOverlapPopup(null);
+      }}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#0e1018",border:"1px solid #e8aa2244",borderRadius:8,padding:16,width:340,boxShadow:"0 8px 40px rgba(0,0,0,0.8)",animation:"popIn 0.2s ease-out"}}>
+          <div style={{fontSize:12,fontWeight:"bold",color:"#e8aa22",marginBottom:8,letterSpacing:2,textAlign:"center"}}>{"\u26A0"} OVERWRITE CUES</div>
+          <div style={{fontSize:10,color:"#888",marginBottom:4,textAlign:"center"}}>{dragOverlapPopup.overlaps.length} cue{dragOverlapPopup.overlaps.length>1?"s":""} will be affected</div>
+          <div style={{fontSize:9,color:"#666",marginBottom:12,textAlign:"center"}}>{dragOverlapPopup.overlaps.filter(o=>o.type==="full").length} fully covered &middot; {dragOverlapPopup.overlaps.filter(o=>o.type==="partial").length} partially covered (will split)</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <button onClick={()=>{
+              const pop=dragOverlapPopup;
+              const movedIds=new Set(pop.movedIds);
+              setCues(prev=>{
+                const movedCues=prev.filter(c=>movedIds.has(c.id));
+                let result=prev.filter(c=>!pop.overlaps.find(o=>o.cue.id===c.id));
+                pop.overlaps.forEach(({cue:oc, type})=>{
+                  if(type==="full") return;
+                  const oL=oc.beat, oR=oc.beat+oc.duration;
+                  const cuts=[];
+                  movedCues.forEach(mc=>{
+                    const mL=mc.beat, mR=mc.beat+mc.duration;
+                    if(mc.fixtureId===oc.fixtureId && mc.param===oc.param && mR>oL && mL<oR) cuts.push({mL,mR});
+                  });
+                  cuts.sort((a,b)=>a.mL-b.mL);
+                  let cursor=oL;
+                  cuts.forEach(({mL,mR})=>{
+                    if(mL>cursor && (mL-cursor)>0.05){
+                      const sv=interpolateCue(oc,cursor), ev=interpolateCue(oc,mL);
+                      result.push({...oc, id:genId(), beat:cursor, duration:mL-cursor, startValue:sv, value:sv, endValue:ev, fadeIn:oc.fadeIn, fadeOut:oc.fadeOut});
+                    }
+                    cursor=Math.max(cursor,mR);
+                  });
+                  if(cursor<oR && (oR-cursor)>0.05){
+                    const sv=interpolateCue(oc,cursor), ev=interpolateCue(oc,oR);
+                    result.push({...oc, id:genId(), beat:cursor, duration:oR-cursor, startValue:sv, value:ev, endValue:ev, fadeIn:oc.fadeIn, fadeOut:oc.fadeOut});
+                  }
+                });
+                return result;
+              });
+              setDragOverlapPopup(null);
+            }} style={{padding:"8px 0",background:"#ff444422",border:"1px solid #ff4444",color:"#ff6644",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:"bold",letterSpacing:1}}>OVERWRITE<div style={{fontSize:8,color:"#ff664488",marginTop:2}}>Split partial, remove fully covered</div></button>
+            <button onClick={()=>{
+              const pre=dragOverlapPopup.preBeats;
+              setCues(prev=>prev.map(c=>pre[c.id]!=null?{...c,beat:pre[c.id]}:c));
+              setDragOverlapPopup(null);
+            }} style={{padding:"6px 0",background:"#1a1e26",border:"1px solid #333",color:"#666",borderRadius:8,cursor:"pointer",fontSize:10,letterSpacing:1}}>CANCEL</button>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
