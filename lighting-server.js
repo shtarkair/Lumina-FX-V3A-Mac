@@ -23,7 +23,13 @@ const UPDATE_FILES = [
   'package-lock.json'
 ];
 const GITHUB_REPO = 'shtarkair/Lumina-FX-V3A-Mac';
-const IS_GIT_REPO = fs.existsSync(path.join(__dirname, '.git'));
+// Detect if running from git repo: check for .git AND that git commands work
+const IS_GIT_REPO = (() => {
+  if (!fs.existsSync(path.join(__dirname, '.git'))) return false;
+  try { execSync('git rev-parse HEAD', { cwd: __dirname, timeout: 3000, stdio: 'pipe' }); return true; }
+  catch(e) { return false; }
+})();
+console.log('[UPDATE] Mode:', IS_GIT_REPO ? 'git repo' : 'standalone app (GitHub Releases)');
 const VERSION_FILE = path.join(__dirname, 'version.json');
 function getLocalVersion() {
   try { return JSON.parse(fs.readFileSync(VERSION_FILE, 'utf8')); }
