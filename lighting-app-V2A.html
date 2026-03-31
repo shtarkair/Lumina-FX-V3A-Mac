@@ -980,7 +980,7 @@ function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfad
 
 const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, setCues, loopStart, loopEnd, fxStart, fxEnd, setFxEnd, setExpandedFixtures, setExpandedGroups, onSelectionChange, onPreviewChange, autoDissolve }) {
   const [selFixtures, setSelFixtures] = useState(() => { try { const s=localStorage.getItem("lumina-fx-selfixtures"); if(s){ const ids=JSON.parse(s); const valid=ids.filter(id=>fixtures.some(f=>f.id===id)); if(valid.length>0) return new Set(valid); } } catch(e){} return new Set(fixtures.slice(0,4).map(f=>f.id)); });
-  useEffect(()=>{ if(onSelectionChange) onSelectionChange(selFixtures); try{localStorage.setItem("lumina-fx-selfixtures",JSON.stringify([...selFixtures]));}catch(e){} }, [selFixtures]);
+  useEffect(()=>{ if(onSelectionChange) onSelectionChange(selFixtures); try{localStorage.setItem("lumina-fx-selfixtures",JSON.stringify([...selFixtures]));}catch(e){} window.__fxSelFixtures=setSelFixtures; }, [selFixtures]);
   const [paramId, setParamId] = useState("dimmer");
   const [multiParamMode, setMultiParamMode] = useState(false);
   const [multiSelectedParams, setMultiSelectedParams] = useState(new Set(["dimmer"]));
@@ -1950,6 +1950,33 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
   useEffect(()=>{if(midiAutoConnect&&!midiConnected&&toggleMidi)toggleMidi();},[]);
   const [padValues, setPadValues] = useState(() => { const m={}; fixtures.forEach(fx=>{m[fx.id]=100;}); return m; });
   const [quantize, setQuantize] = useState(false);
+  // Black key assignments: { "bk-0-0": { type:"group", groupType:"SPOT" }, "bk-0-3": { type:"seq", cat:"DIM", slot:2 }, "bk-0-5": { type:"action", act:"act:play" } }
+  const [bkAssign, setBkAssign] = useState(()=>{ try { return JSON.parse(localStorage.getItem("lumina-black-keys"))||{}; } catch(e){ return {}; } });
+  const [bkPopup, setBkPopup] = useState(null); // { bkId, rect }
+  const [bkPressed, setBkPressed] = useState(new Set());
+  useEffect(()=>{ localStorage.setItem("lumina-black-keys", JSON.stringify(bkAssign)); },[bkAssign]);
+  const bkAssignRef = useRef(bkAssign);
+  useEffect(()=>{ bkAssignRef.current = bkAssign; },[bkAssign]);
+  // Black key action executor
+  const execBlackKey = (bkId) => {
+    const a = bkAssignRef.current[bkId];
+    if (!a) return;
+    if (a.type === "group") {
+      const ids = fixtures.filter(f => f.type === a.groupType || (f.position||"FRONT 1") === a.groupType).map(f => f.id);
+      if (ids.length > 0 && midiActions) {
+        // Toggle fixture selection via the FX selector — use window bridge
+        if (window.__toggleFixtureGroup) window.__toggleFixtureGroup(ids);
+      }
+    } else if (a.type === "seq" && window.__recallSeq) {
+      window.__recallSeq(a.cat, a.slot);
+    } else if (a.type === "action" && midiActions && midiActions[a.act]) {
+      midiActions[a.act]();
+    }
+    setBkPressed(prev => { const n = new Set(prev); n.add(bkId); return n; });
+    setTimeout(() => setBkPressed(prev => { const n = new Set(prev); n.delete(bkId); return n; }), 150);
+  };
+  // Expose for MIDI dispatch
+  useEffect(()=>{ window.__execBlackKey = execBlackKey; },[bkAssign, midiActions]);
   const param = getParam(activeParam);
   const paramRef = useRef(param);
   useEffect(()=>{paramRef.current=param;},[param]);
@@ -2082,11 +2109,13 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
         if (mapped && typeof mapped === "string" && mapped.startsWith("slider:")) return;
         if (mapped && typeof mapped === "string" && (mapped.startsWith("act:") || mapped.startsWith("pad-"))) {
           if (midiActionsRef.current && midiActionsRef.current[mapped]) midiActionsRef.current[mapped]();
+        } else if (mapped && typeof mapped === "string" && mapped.startsWith("bk-")) {
+          if (window.__execBlackKey) window.__execBlackKey(mapped);
         } else if (mapped && handlePadPressRef.current) handlePadPressRef.current(mapped, velocity);
       }
       if (cmd === 0x80 || (cmd === 0x90 && velocity === 0) || (cmd === 0xB0 && velocity === 0)) {
         const mapped = midiMapRef.current[mapKey];
-        if (mapped && typeof mapped === "string" && (mapped.startsWith("act:") || mapped.startsWith("pad-"))) return;
+        if (mapped && typeof mapped === "string" && (mapped.startsWith("act:") || mapped.startsWith("pad-") || mapped.startsWith("bk-"))) return;
         if (mapped && handlePadReleaseRef.current) handlePadReleaseRef.current(mapped);
       }
     };
@@ -2283,7 +2312,27 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const globalIdx = idx + padPage * PADS_PER_PAGE;
             if (!blackAfter.has(globalIdx % 7)) return null;
             const bkW=Math.max(16,Math.round(WW*0.6));
-            return <div key={`bk-${idx}`} style={{position:"absolute",left:idx*(WW+GAP)+WW-bkW/2,top:0,width:bkW,height:54,borderRadius:"2px 2px 5px 5px",background:"linear-gradient(180deg,#1a1a1a,#2e2e2e 60%,#1a1a1a)",border:"1px solid #000",boxShadow:"0 5px 0 #000",zIndex:3,pointerEvents:"none"}}/>;
+            const bkId=`bk-${padPage}-${idx}`;
+            const assign=bkAssign[bkId];
+            const pressed=bkPressed.has(bkId);
+            const hasMidi=reverseMidiMap[bkId]!==undefined;
+            const assignColor=assign?(assign.type==="group"?"#e8aa22":assign.type==="seq"?"#44ddff":"#44ffaa"):"#555";
+            const assignLabel=assign?(assign.type==="group"?assign.groupType:assign.type==="seq"?(assign.cat+"."+assign.slot):assign.act?.replace("act:","").toUpperCase()):"";
+            return <div key={`bk-${idx}`}
+              onMouseDown={()=>{if(midiLearn==="waiting"){setMidiLearn(bkId);return;}execBlackKey(bkId);}}
+              onContextMenu={e=>{e.preventDefault();const r=e.currentTarget.getBoundingClientRect();setBkPopup({bkId,rect:{top:r.bottom+2,left:r.left}});}}
+              style={{position:"absolute",left:idx*(WW+GAP)+WW-bkW/2,top:0,width:bkW,height:54,borderRadius:"2px 2px 5px 5px",
+                background:pressed?`linear-gradient(180deg,${assignColor}cc,${assignColor}88)`:assign?`linear-gradient(180deg,#1a1a1a,${assignColor}33 60%,#1a1a1a)`:"linear-gradient(180deg,#1a1a1a,#2e2e2e 60%,#1a1a1a)",
+                border:midiLearn===bkId?"2px solid #cc66ff":hasMidi?"2px solid #aa66ff":"1px solid #000",
+                boxShadow:pressed?`0 2px 0 #000, 0 0 12px ${assignColor}88`:midiLearn===bkId?"0 0 12px #cc66ff88":"0 5px 0 #000",
+                zIndex:3,cursor:"pointer",overflow:"hidden",userSelect:"none",
+                transform:pressed?"translateY(3px)":"translateY(0)",transition:pressed?"none":"all 0.06s",
+                animation:midiLearn===bkId?"midilearn 0.8s infinite":"none",
+                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1}}>
+              {assignLabel&&<span style={{fontSize:6,color:assignColor,fontWeight:"bold",letterSpacing:0.5,textAlign:"center",lineHeight:"8px",maxWidth:bkW-4,overflow:"hidden"}}>{assignLabel}</span>}
+              {midiLearn===bkId&&<span style={{fontSize:6,color:"#cc66ff",fontWeight:"bold"}}>LEARN</span>}
+              {hasMidi&&midiLearn!==bkId&&<span style={{position:"absolute",top:2,left:2,fontSize:5,color:"#bb88ee",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:1,padding:"0 2px",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap[bkId])}</span>}
+            </div>;
           })}
         </div>
         </div>
@@ -2293,6 +2342,30 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
           <button onClick={()=>{if(midiLearn==="waiting"){const k=reverseMidiMap["act:quant"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:quant")delete next[k2];});return next;});setMidiLearn(null);}else setMidiLearn("act:quant");return;}setQuantize(q=>!q);}} style={{position:"relative",padding:"6px 10px",background:quantize?"#162030":midiLearn==="act:quant"?"#2a1a30":"#0c0f14",border:"2px solid "+(midiLearn==="act:quant"?"#aa44ff":quantize?"#4488ff":"#252930"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:quantize?"#4488ff":"#333",animation:midiLearn==="act:quant"?"midipulse 1.2s infinite":"none"}}>{"\u266A"} {quantize?"QUANT":"FREE"}{reverseMidiMap["act:quant"]!==undefined&&midiLearn!=="act:quant"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:quant"])}</span>}</button>
         </div>
       </div>
+      {bkPopup && (()=>{
+        const types=[...new Set(fixtures.map(f=>f.type))];
+        const positions=[...new Set(fixtures.map(f=>f.position||"FRONT 1"))];
+        const actions=["act:play","act:stop","act:rewind","act:loop","act:rec","act:erase","act:snap","act:edit","act:draw","act:copy","act:undo","act:redo","act:tap"];
+        const seqCats=["DIM","POS","COL","BEAM","ALL"];
+        const assign = (val) => { setBkAssign(prev=>({...prev,[bkPopup.bkId]:val})); setBkPopup(null); };
+        return <><div onClick={()=>setBkPopup(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9998}}/>
+          <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:Math.min(bkPopup.rect.top,window.innerHeight-340),left:Math.min(bkPopup.rect.left,window.innerWidth-200),width:190,background:"#12151e",border:"1px solid #e8aa2244",borderRadius:8,boxShadow:"0 8px 30px rgba(0,0,0,0.9)",padding:8,display:"flex",flexDirection:"column",gap:4,zIndex:9999,maxHeight:320,overflowY:"auto"}}>
+            <div style={{fontSize:8,color:"#e8aa22",letterSpacing:2,fontWeight:"bold"}}>ASSIGN BLACK KEY</div>
+            <div style={{fontSize:7,color:"#555",letterSpacing:1}}>GROUPS</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+              {types.concat(positions).map(g=><button key={g} onClick={()=>assign({type:"group",groupType:g})} style={{padding:"3px 6px",fontSize:8,background:"#e8aa2215",border:"1px solid #e8aa2244",color:"#e8aa22",borderRadius:4,cursor:"pointer",fontWeight:"bold"}}>{g}</button>)}
+            </div>
+            <div style={{fontSize:7,color:"#555",letterSpacing:1}}>SEQUENCES</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+              {seqCats.map(cat=>[1,2,3,4,5].map(s=><button key={cat+s} onClick={()=>assign({type:"seq",cat,slot:s})} style={{padding:"3px 5px",fontSize:7,background:"#44ddff15",border:"1px solid #44ddff44",color:"#44ddff",borderRadius:4,cursor:"pointer",fontWeight:"bold"}}>{cat}.{s}</button>))}
+            </div>
+            <div style={{fontSize:7,color:"#555",letterSpacing:1}}>ACTIONS</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
+              {actions.map(a=><button key={a} onClick={()=>assign({type:"action",act:a})} style={{padding:"3px 5px",fontSize:7,background:"#44ffaa15",border:"1px solid #44ffaa44",color:"#44ffaa",borderRadius:4,cursor:"pointer",fontWeight:"bold"}}>{a.replace("act:","").toUpperCase()}</button>)}
+            </div>
+            <button onClick={()=>{setBkAssign(prev=>{const n={...prev};delete n[bkPopup.bkId];return n;});setBkPopup(null);}} style={{padding:"4px",fontSize:8,background:"#1a0808",border:"1px solid #ff444444",color:"#ff4444",borderRadius:4,cursor:"pointer",fontWeight:"bold"}}>CLEAR</button>
+          </div></>;
+      })()}
     </div>
   );
 });
@@ -2974,6 +3047,37 @@ function LightingTimeline() {
   const [seqRecallMode,setSeqRecallMode] = useState("replace");
   const [seqFadeBeats,setSeqFadeBeats] = useState(0);
   const [lastRecalledBatchId,setLastRecalledBatchId] = useState(null);
+
+  // Black key bridges: expose group toggle + seq recall for FixturePadBar black keys
+  useEffect(()=>{
+    window.__toggleFixtureGroup = (ids) => {
+      // Toggle fixture selection in FX generator via selFixtures bridge
+      if (window.__fxSelFixtures) {
+        window.__fxSelFixtures(prev => {
+          const s = new Set(prev);
+          const allSel = ids.every(id => s.has(id));
+          if (allSel) ids.forEach(id => s.delete(id));
+          else ids.forEach(id => s.add(id));
+          return s;
+        });
+      }
+    };
+    window.__recallSeq = (cat, slot) => {
+      const stored = sequenceStorage[cat]?.[slot-1];
+      if (!stored) return;
+      setCues(prev => {
+        const batchId = genId();
+        const newCues = (stored.cues || []).map(c => ({...c, id: genId(), _batchId: batchId}));
+        if (seqRecallMode === "replace") {
+          const catDef = SEQ_CATS.find(c => c.id === cat);
+          const catParams = catDef?.params ? new Set(catDef.params) : null;
+          const keep = catParams ? prev.filter(c => !catParams.has(c.param)) : [];
+          return [...keep, ...newCues];
+        }
+        return [...prev, ...newCues];
+      }, "recall seq " + cat + "." + slot);
+    };
+  }, [sequenceStorage, seqRecallMode]);
 
   // Output engine state
   const [dmxPatch, setDmxPatch] = useState(() => {
