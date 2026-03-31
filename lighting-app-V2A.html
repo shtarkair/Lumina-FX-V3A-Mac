@@ -2655,6 +2655,7 @@ function LightingTimeline() {
   const [mvrPositions, setMvrPositions] = useState({}); // uuid → position override
   const [mvrLoading, setMvrLoading] = useState(false);
   const [mvrPosDropdown, setMvrPosDropdown] = useState(null); // uuid of open dropdown
+  const [displayScale, setDisplayScale] = useState(()=>{ try { return parseFloat(localStorage.getItem("lumina-display-scale"))||1; } catch(e){ return 1; } });
   useEffect(() => { localStorage.setItem("lumina-fixtures", JSON.stringify(fixtures)); }, [fixtures]);
   useEffect(() => { localStorage.setItem("lumina-display-scale", String(displayScale)); }, [displayScale]);
   const [cues,setCuesRaw] = useState(defaultCues);
@@ -2869,7 +2870,6 @@ function LightingTimeline() {
   const [autoSaveInterval, setAutoSaveInterval] = useState(()=>{ try { return parseInt(localStorage.getItem("lumina-autosave-interval"))||5; } catch(e){ return 5; } });
   const [lastAutoSave, setLastAutoSave] = useState(null);
   const autoSaveTimerRef = useRef(null);
-  const [displayScale, setDisplayScale] = useState(()=>{ try { return parseFloat(localStorage.getItem("lumina-display-scale"))||1; } catch(e){ return 1; } });
   const [fxStart,setFxStart] = useState(0);
   const [fxEnd,setFxEnd] = useState(16);
   const [fxSelectedFixtures, setFxSelectedFixtures] = useState(new Set());
