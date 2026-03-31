@@ -1775,11 +1775,11 @@ const SequenceStoragePanel = React.memo(function SequenceStoragePanel({ fixtures
             <div style={{display:"flex",flexDirection:"column",gap:6,paddingTop:9}}>
               <div>
                 <div style={{fontSize:8,color:"#cc44ff88",letterSpacing:2,fontWeight:"bold",marginBottom:3}}>SPREAD <span style={{color:"#cc44ff",fontSize:12,fontWeight:"bold"}}>{ap.spreadVal}b</span></div>
-                <GlowSlider min={0.25} max={16} step={0.25} value={ap.spreadVal} onChange={v=>setApField("spreadVal",v)} color="#cc44ff" ticks={8} label="SPREAD"/>
+                <GlowSlider min={0.25} max={16} step={0.25} value={ap.spreadVal} onChange={v=>setApField("spreadVal",v)} color="#cc44ff" ticks={8} label="SPREAD" midiId="ap-spread"/>
               </div>
               <div>
                 <div style={{fontSize:8,color:"#44aaff88",letterSpacing:2,fontWeight:"bold",marginBottom:3}}>DIVIDE <span style={{color:"#44aaff",fontSize:12,fontWeight:"bold"}}>{ap.divideVal}</span></div>
-                <GlowSlider min={1} max={16} step={1} value={ap.divideVal} onChange={v=>setApField("divideVal",v)} color="#44aaff" ticks={8} label="DIVIDE"/>
+                <GlowSlider min={1} max={16} step={1} value={ap.divideVal} onChange={v=>setApField("divideVal",v)} color="#44aaff" ticks={8} label="DIVIDE" midiId="ap-divide"/>
               </div>
             </div>
             {ap.slotCues.length>0&&tgtCount>0&&(()=>{
@@ -4303,7 +4303,7 @@ function LightingTimeline() {
               <span style={{fontSize:13,color:"#44cc4488",letterSpacing:2,fontWeight:"bold"}}>TIME SCALE</span>
               <span style={{fontSize:22,color:"#44cc44",fontWeight:"bold"}}>{dispScale}</span>
             </div>
-            <GlowSlider min={0} max={100} step={1} value={timeScaleVal} onChange={setTimeScaleVal} color="#44cc44" ticks={10} label="TIME"/>
+            <GlowSlider min={0} max={100} step={1} value={timeScaleVal} onChange={setTimeScaleVal} color="#44cc44" ticks={10} label="TIME" midiId="time-scale"/>
             <div style={{display:"flex",justifyContent:"space-between",marginTop:12,gap:8}}>
               <button onClick={()=>{setTimeSliderOpen(false);setTimeScaleVal(50);}} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff4444",borderRadius:8,cursor:"pointer",minHeight:40}}>CANCEL</button>
               <button onClick={()=>setTimeScaleVal(50)} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#44cc44",borderRadius:8,cursor:"pointer",minHeight:40}}>RESET</button>
@@ -4422,7 +4422,7 @@ function LightingTimeline() {
               <span style={{fontSize:13,color:"#cc44ff88",letterSpacing:2,fontWeight:"bold"}}>FAN VALUES</span>
               <span style={{fontSize:22,color:"#cc44ff",fontWeight:"bold"}}>{pct}% {dir}</span>
             </div>
-            <GlowSlider min={0} max={100} step={1} value={fanVal} onChange={setFanVal} color="#cc44ff" ticks={10} label="FAN"/>
+            <GlowSlider min={0} max={100} step={1} value={fanVal} onChange={setFanVal} color="#cc44ff" ticks={10} label="FAN" midiId="fan-slider"/>
             <div style={{display:"flex",gap:6,marginTop:8,justifyContent:"center"}}>
               {[{id:">>",label:"\u226A",tip:"\u226A SPREAD"},{id:"<<",label:"\u226B",tip:"SPREAD \u226B"},{id:"><",label:"\u25C0\u25B6",tip:"CENTER"}].map(d=>(
                 <button key={d.id} onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>setFanDir(d.id)} style={{flex:1,padding:"8px 0",fontSize:15,fontWeight:"bold",background:fanDir===d.id?"#2a0a2a":"#111218",border:`1px solid ${fanDir===d.id?"#cc44ff88":"#252930"}`,color:fanDir===d.id?"#cc44ff":"#555",borderRadius:8,cursor:"pointer",transition:"all 0.15s",boxShadow:fanDir===d.id?"0 0 8px #cc44ff22":"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
@@ -8117,7 +8117,7 @@ function LightingTimeline() {
             </div>
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:4}}>ENCODER SENSITIVITY <span style={{color:"#cc66ff"}}>{encoderSensitivity.toFixed(1)}x</span></div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{flex:1}}><GlowSlider min={0.1} max={5} step={0.1} value={encoderSensitivity} onChange={v=>{setEncoderSensitivity(v);bpmSensitivity.current=v;window.__bpmSensitivity=v;localStorage.setItem("lumina-encoder-sensitivity",v);}} color="#aa44ff" label="SENSITIVITY"/></div>
+              <div style={{flex:1}}><GlowSlider min={0.1} max={5} step={0.1} value={encoderSensitivity} onChange={v=>{setEncoderSensitivity(v);bpmSensitivity.current=v;window.__bpmSensitivity=v;localStorage.setItem("lumina-encoder-sensitivity",v);}} color="#aa44ff" label="SENSITIVITY" midiId="encoder-sens"/></div>
             </div>
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:4}}>MOD WHEEL VALUE</div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
