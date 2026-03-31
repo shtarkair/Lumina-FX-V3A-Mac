@@ -787,13 +787,14 @@ const EFFECT_TYPES = [
   { id:"customCurve", label:"Custom", icon:"\u270E", desc:"Saved curve preset" },
 ];
 
-function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfade, rangeMin, rangeMax, easing, startBeat, endBeat }) {
+function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfade, rangeMin, rangeMax, rangeEnd, easing, startBeat, endBeat }) {
   const cues = [];
   const dur = endBeat - startBeat;
   const n = fixtures.length;
   if (n === 0 || dur <= 0) return cues;
   const param = getParam(paramId);
   const lo = rangeMin ?? param.min, hi = rangeMax ?? param.max;
+  const endVal = rangeEnd ?? lo; // end point defaults to start point
   const batchId = genId();
 
   const spread = offset / 100;
@@ -992,6 +993,9 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
   const [easing, setEasing] = useState("linear");
   const [crossfade, setCrossfade] = useState(0);
   const [direction, setDirection] = useState("fwd");
+  const [curveStart, setCurveStart] = useState(null); // null = use param.min
+  const [curveMid, setCurveMid] = useState(null);     // null = use param.max
+  const [curveEnd, setCurveEnd] = useState(null);      // null = use param.min
   const [easingPopupOpen, setEasingPopupOpen] = useState(false);
   const [lastBatchId, setLastBatchId] = useState(null);
   const [conflictPopup, setConflictPopup] = useState(null); // {newCues, conflicting, fxList}
@@ -1071,7 +1075,7 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
     if (direction === "bwd") fxList = [...fxList].reverse();
     const newCues = allParamIds.flatMap(pid => {
       const p = getParam(pid);
-      return generateEffect({ effectType, fixtures:fxList, paramId:pid, speed, offset, crossfade, rangeMin: p.min, rangeMax: p.max, easing, startBeat: fxStart, endBeat: fxEnd });
+      return generateEffect({ effectType, fixtures:fxList, paramId:pid, speed, offset, crossfade, rangeMin: curveStart ?? p.min, rangeMax: curveMid ?? p.max, rangeEnd: curveEnd, easing, startBeat: fxStart, endBeat: fxEnd });
     });
     if (newCues.length === 0) return;
     // Check if any cues extend past fxEnd
@@ -1131,9 +1135,9 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
       const p = getParam(pid);
       if (!p) return [];
       return generateEffect({ effectType, fixtures:fxList, paramId:pid, speed, offset, crossfade,
-        rangeMin: p.min, rangeMax: p.max, easing, startBeat: fxStart, endBeat: fxEnd });
+        rangeMin: curveStart ?? p.min, rangeMax: curveMid ?? p.max, rangeEnd: curveEnd, easing, startBeat: fxStart, endBeat: fxEnd });
     });
-  }, [fixtures, selFixtures, paramId, multiSelectedParams, multiParamMode, effectType, speed, offset, crossfade, easing, direction, fxStart, fxEnd]);
+  }, [fixtures, selFixtures, paramId, multiSelectedParams, multiParamMode, effectType, speed, offset, crossfade, easing, direction, fxStart, fxEnd, curveStart, curveMid, curveEnd]);
 
   useEffect(()=>{ if(onPreviewChange) onPreviewChange(ghostCues); }, [ghostCues]);
 
@@ -1410,6 +1414,20 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
           {(effectType==="chase"||effectType==="rampUp"||effectType==="rampDown")&&<div>
             <span style={{fontSize:9,color:"#555"}}>CROSSFADE ({crossfade}%)</span>
             <GlowSlider min={0} max={100} value={crossfade} onChange={setCrossfade} color="#44ffaa" style={{marginTop:2}} label="CROSSFADE" midiId="fx-crossfade"/>
+          </div>}
+          {!isBallyhoo && <div style={{borderTop:"1px solid #1e222a",paddingTop:4,marginTop:4}}>
+            <div style={{fontSize:8,color:"#556",letterSpacing:2,marginBottom:4}}>CURVE VALUES</div>
+            <div style={{display:"flex",gap:4,marginBottom:4}}>
+              <div style={{flex:1}}>
+                <span style={{fontSize:8,color:"#44aaff"}}>START {curveStart !== null ? Math.round(curveStart) : Math.round(param.min)}</span>
+                <GlowSlider min={param.min} max={param.max} step={1} value={curveStart ?? param.min} onChange={v=>setCurveStart(v)} color="#44aaff" label="START" midiId="fx-curvestart"/>
+              </div>
+              <div style={{flex:1}}>
+                <span style={{fontSize:8,color:"#ffaa44"}}>MID {curveMid !== null ? Math.round(curveMid) : Math.round(param.max)}</span>
+                <GlowSlider min={param.min} max={param.max} step={1} value={curveMid ?? param.max} onChange={v=>setCurveMid(v)} color="#ffaa44" label="MID" midiId="fx-curvemid"/>
+              </div>
+            </div>
+            <button onClick={()=>{setCurveStart(null);setCurveMid(null);}} style={{width:"100%",minHeight:24,fontSize:8,background:"#0c0e12",border:"1px solid #252930",color:"#555",borderRadius:5,cursor:"pointer",letterSpacing:1}}>RESET TO DEFAULT</button>
           </div>}
         </div>
       </div>
@@ -2184,7 +2202,17 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
   useEffect(() => { handlePadPressRef.current = handlePadPress; }, [handlePadPress]);
   useEffect(() => { handlePadReleaseRef.current = handlePadRelease; }, [handlePadRelease]);
 
-  const WW=37, WH=80, GAP=12;
+  const padContainerRef = useRef(null);
+  const [padContainerW, setPadContainerW] = useState(0);
+  useEffect(() => {
+    const measure = () => { if (padContainerRef.current) setPadContainerW(padContainerRef.current.getBoundingClientRect().width); };
+    const t = setTimeout(measure, 100);
+    window.addEventListener("resize", measure);
+    return () => { clearTimeout(t); window.removeEventListener("resize", measure); };
+  }, []);
+  const GAP = 4;
+  const WW = padContainerW > 0 ? Math.floor((padContainerW - (PADS_PER_PAGE - 1) * GAP) / PADS_PER_PAGE) : 37;
+  const WH = 80;
   const blackAfter = new Set([0,1,2,4,5]);
   const totalPages = Math.max(1, Math.ceil(fixtures.length / PADS_PER_PAGE));
   const pagedFixturesRaw = fixtures.slice(padPage * PADS_PER_PAGE, (padPage + 1) * PADS_PER_PAGE);
@@ -2200,12 +2228,12 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
         <div style={{display:"flex",gap:2,flexWrap:"wrap",flex:1}}>
           {PARAM_GROUPS.map(group => group.params.map(p => {
             const isSel = activeParam===p.id;
-            return <button key={p.id} onClick={()=>{setActiveParam(p.id);if(onParamSelect)onParamSelect(p.id,group.group);}} style={{padding:"2px 6px",background:isSel?p.color+"33":"#0f1115",border:"1px solid "+(isSel?p.color:"#252930"),borderRadius:6,cursor:"pointer",fontSize:9,color:isSel?p.color:"#444",fontWeight:isSel?"bold":"normal"}}>{p.label}</button>;
+            return <button key={p.id} onClick={()=>{setActiveParam(p.id);if(onParamSelect)onParamSelect(p.id,group.group);}} style={{padding:"8px 6px",minHeight:36,background:isSel?p.color+"33":"#0f1115",border:"1px solid "+(isSel?p.color:"#252930"),borderRadius:6,cursor:"pointer",fontSize:9,color:isSel?p.color:"#444",fontWeight:isSel?"bold":"normal",touchAction:"manipulation"}}>{p.label}</button>;
           }))}
         </div>
       </div>
       <div style={{padding:"8px 10px 8px",display:"flex",gap:12,alignItems:"flex-start"}}>
-        <div>
+        <div ref={padContainerRef} style={{flex:1}}>
         {totalPages > 1 && <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
           <button onClick={()=>setPadPage(p=>Math.max(0,p-1))} disabled={padPage===0} style={{padding:"2px 8px",background:padPage===0?"#0c0e12":"#1a1e28",border:"1px solid "+(padPage===0?"#252930":"#4488ff"),borderRadius:6,cursor:padPage===0?"default":"pointer",fontSize:10,color:padPage===0?"#333":"#4488ff",fontWeight:"bold"}}>◀</button>
           <span style={{fontSize:9,color:"#5a6a7a",letterSpacing:1}}>PAGE {padPage+1} / {totalPages}</span>
@@ -2217,11 +2245,12 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const emptySlotId = `empty-${padPage}-${idx}`;
             const x=idx*(WW+GAP);
             if (!fx) {
-              // Empty/unassigned key — gray, MIDI-learnable
+              // Empty/unassigned key — gray, MIDI-learnable, purple outline if MIDI mapped
+              const hasMidi = reverseMidiMap[emptySlotId] !== undefined;
               return (
                 <div key={emptySlotId} style={{position:"absolute",left:x,top:0,width:WW}}>
                   <div onMouseDown={()=>{if(midiLearn==="waiting"){setMidiLearn(emptySlotId);return;}}}
-                    style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:"linear-gradient(180deg,#6a6e76,#4a4e56)",border:"1px solid #555",boxShadow:"0 6px 0 #111",position:"relative",overflow:"hidden",userSelect:"none",cursor:midiLearn==="waiting"?"pointer":"default",opacity:0.5}}>
+                    style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:hasMidi?"linear-gradient(180deg,#5a5070,#3a3050)":"linear-gradient(180deg,#6a6e76,#4a4e56)",border:hasMidi?"2px solid #aa66ff":"1px solid #555",boxShadow:hasMidi?"0 0 12px rgba(170,102,255,0.3),0 6px 0 #111":"0 6px 0 #111",position:"relative",overflow:"hidden",userSelect:"none",cursor:midiLearn==="waiting"?"pointer":"default",opacity:hasMidi?0.8:0.5}}>
                     <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:"rgba(0,0,0,0.15)",border:"1px solid #55555555",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:"#555"}}>{idx+1+padPage*PADS_PER_PAGE}</div>
                     {midiLearn===emptySlotId&&<div style={{position:"absolute",inset:0,borderRadius:"3px 3px 8px 8px",border:"2px solid #cc66ff",animation:"midilearn 0.8s infinite",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(170,68,255,0.15)",zIndex:5}}><span style={{fontSize:8,color:"#cc66ff",fontWeight:"bold"}}>PRESS KEY</span></div>}
                     {reverseMidiMap[emptySlotId]!==undefined&&midiLearn!==emptySlotId&&<div style={{position:"absolute",top:4,left:4,padding:"1px 3px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:7,color:"#bb88ee",fontWeight:"bold",zIndex:4}}>{midiKeyLabel(reverseMidiMap[emptySlotId])}</div>}
@@ -2264,7 +2293,8 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
           {pagedFixtures.map((_,idx) => {
             const globalIdx = idx + padPage * PADS_PER_PAGE;
             if (!blackAfter.has(globalIdx % 7)) return null;
-            return <div key={`bk-${idx}`} style={{position:"absolute",left:idx*(WW+GAP)+WW-12,top:0,width:24,height:54,borderRadius:"2px 2px 5px 5px",background:"linear-gradient(180deg,#1a1a1a,#2e2e2e 60%,#1a1a1a)",border:"1px solid #000",boxShadow:"0 5px 0 #000",zIndex:3,pointerEvents:"none"}}/>;
+            const bkW=Math.max(16,Math.round(WW*0.6));
+            return <div key={`bk-${idx}`} style={{position:"absolute",left:idx*(WW+GAP)+WW-bkW/2,top:0,width:bkW,height:54,borderRadius:"2px 2px 5px 5px",background:"linear-gradient(180deg,#1a1a1a,#2e2e2e 60%,#1a1a1a)",border:"1px solid #000",boxShadow:"0 5px 0 #000",zIndex:3,pointerEvents:"none"}}/>;
           })}
         </div>
         </div>
