@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 Lumina FX.app/
+*.dmg
+.build-cache/
+.dmg-tmp/

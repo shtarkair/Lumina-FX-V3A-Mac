@@ -255,8 +255,8 @@ const MONITOR_EVERY = 4; // send monitor data every N merge ticks (~10Hz at 40Hz
 // --- HTTP Server ---
 const fixtureLibraryPath = path.join(__dirname, 'fixture-library.json');
 
-// Shows folder on Desktop
-const SHOWS_DIR = path.join(os.homedir(), 'Desktop', 'Lumina Shows');
+// Shows folder in ~/Documents/Lumina Shows (works from .app or dev)
+const SHOWS_DIR = path.join(os.homedir(), 'Documents', 'Lumina Shows');
 if (!fs.existsSync(SHOWS_DIR)) {
   fs.mkdirSync(SHOWS_DIR, { recursive: true });
   console.log('[SHOWS] Created folder:', SHOWS_DIR);
@@ -579,7 +579,7 @@ setTimeout(() => {
   }
   // Visualizer page
   if (req.url === '/viz') {
-    const vizPath = path.join(os.homedir(), 'Desktop', 'Lumina-FX-V1A-Mac', 'viz.html');
+    const vizPath = path.join(__dirname, 'viz.html');
     fs.readFile(vizPath, (err, data) => {
       if (err) { res.writeHead(404); res.end('Visualizer not found'); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1556,6 +1556,17 @@ wss.on('connection', (ws) => {
     }
   });
 });
+
+// --- Viz push loop: broadcast lastVizState to all clients at 20fps ---
+// This ensures viz.html always receives live updates independently of
+// the main app's output WebSocket reconnection cycles.
+setInterval(() => {
+  if (!lastVizState) return;
+  const json = JSON.stringify(lastVizState);
+  wss.clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(json);
+  });
+}, 50);
 
 // --- Start ---
 server.listen(PORT, () => {
