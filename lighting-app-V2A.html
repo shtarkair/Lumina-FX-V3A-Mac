@@ -1347,46 +1347,35 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
       </div>
 
       <div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-          {EFFECT_TYPES.map(et => (
-            <button key={et.id} onClick={()=>setEffectType(et.id)} style={{
-              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-              gap:6,padding:"14px 6px 12px",
-              background:effectType===et.id?"#e8aa2220":"#0c0e12",
-              border:`1px solid ${effectType===et.id?"#e8aa22":"#1e222a"}`,
-              boxShadow:effectType===et.id?"0 0 0 1px #e8aa2244, inset 0 1px 0 rgba(255,255,255,0.06)":"inset 0 1px 0 rgba(255,255,255,0.03)",
-              color:effectType===et.id?"#e8aa22":"#888",
-              borderRadius:10,cursor:"pointer",textAlign:"center",
-              minHeight:72,touchAction:"manipulation",
-              fontWeight:effectType===et.id?"bold":"normal",
-              transition:"all 0.12s"}}>
-              <span style={{fontSize:26,lineHeight:1}}>{et.icon}</span>
-              <span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1,opacity:effectType===et.id?1:0.7}}>{et.label}</span>
-            </button>
-          ))}
-        </div>
+        {(() => {
+          const TOTAL = EFFECT_TYPES.length; // 13
+          const isCustom = effectType === "customCurve";
+          let curvePresets = [];
+          if (isCustom) { try { curvePresets = JSON.parse(localStorage.getItem("lumina-curve-presets")||"[]"); } catch(e){} }
+          const btnBase = {display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,padding:"14px 6px 12px",borderRadius:10,cursor:"pointer",textAlign:"center",minHeight:72,touchAction:"manipulation",transition:"all 0.12s"};
+          const emptyStyle = {minHeight:72,background:"#08090c",border:"1px solid #12141a",borderRadius:10};
+          const slots = [];
+          if (isCustom) {
+            for (let i = 0; i < TOTAL - 1; i++) {
+              const p = curvePresets[i];
+              if (p) {
+                const sel = curvePresetName === p.name;
+                slots.push(<button key={p.name} onClick={()=>{setCurvePresetName(p.name);try{localStorage.setItem("lumina-fx-curvepreset",p.name);}catch(e){}}} style={{...btnBase,gap:4,background:sel?"#cc88ff20":"#0c0e12",border:"1px solid "+(sel?"#cc88ff":"#1e222a"),boxShadow:sel?"0 0 0 1px #cc88ff44":"inset 0 1px 0 rgba(255,255,255,0.03)",color:sel?"#cc88ff":"#888",fontWeight:sel?"bold":"normal"}}><span style={{fontSize:22,lineHeight:1}}>{"\u270E"}</span><span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1}}>{p.name}</span><span style={{fontSize:7,color:"#445"}}>{p.points.length} pts</span></button>);
+              } else {
+                slots.push(<div key={"e"+i} style={emptyStyle}/>);
+              }
+            }
+            // Last slot = orange back button
+            slots.push(<button key="back" onClick={()=>setEffectType("chase")} style={{...btnBase,background:"#ff884420",border:"1px solid #ff8844",boxShadow:"0 0 0 1px #ff884444",color:"#ff8844",fontWeight:"bold"}}><span style={{fontSize:26,lineHeight:1}}>{"\u25C0"}</span><span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1}}>Effects</span></button>);
+          } else {
+            EFFECT_TYPES.forEach(et => {
+              const sel = effectType === et.id;
+              slots.push(<button key={et.id} onClick={()=>setEffectType(et.id)} style={{...btnBase,background:sel?"#e8aa2220":"#0c0e12",border:"1px solid "+(sel?"#e8aa22":"#1e222a"),boxShadow:sel?"0 0 0 1px #e8aa2244, inset 0 1px 0 rgba(255,255,255,0.06)":"inset 0 1px 0 rgba(255,255,255,0.03)",color:sel?"#e8aa22":"#888",fontWeight:sel?"bold":"normal"}}><span style={{fontSize:26,lineHeight:1}}>{et.icon}</span><span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1,opacity:sel?1:0.7}}>{et.label}</span></button>);
+            });
+          }
+          return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>{slots}</div>;
+        })()}
       </div>
-
-      {effectType === "customCurve" && (() => {
-        let curvePresets = [];
-        try { curvePresets = JSON.parse(localStorage.getItem("lumina-curve-presets")||"[]"); } catch(e){}
-        return <div style={{borderTop:"1px solid #1e222a",paddingTop:6,marginBottom:4}}>
-          <div style={{fontSize:8,color:"#556",letterSpacing:2,marginBottom:6}}>CURVE PRESET</div>
-          {curvePresets.length === 0 ? <div style={{fontSize:9,color:"#334",padding:"8px 0",textAlign:"center"}}>No presets saved. Use EDIT CURVE in CUE tab to create presets.</div>
-          : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-            {curvePresets.map(p => (
-              <button key={p.name} onClick={()=>{setCurvePresetName(p.name);try{localStorage.setItem("lumina-fx-curvepreset",p.name);}catch(e){}}} style={{
-                padding:"10px 8px",fontSize:11,fontWeight:"bold",
-                background:curvePresetName===p.name?"#cc88ff22":"#0c0e12",
-                border:"1px solid "+(curvePresetName===p.name?"#cc88ff":"#252930"),
-                color:curvePresetName===p.name?"#cc88ff":"#666",
-                borderRadius:8,cursor:"pointer",touchAction:"manipulation",
-                minHeight:44,textAlign:"center"
-              }}>{p.name}<div style={{fontSize:7,color:"#445",marginTop:2}}>{p.points.length} pts</div></button>
-            ))}
-          </div>}
-        </div>;
-      })()}
 
       <div style={{borderTop:"1px solid #1e222a",paddingTop:4}}>
         <div style={{display:"flex",flexDirection:"column",gap:3}}>
