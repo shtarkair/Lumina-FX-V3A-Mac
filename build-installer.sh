@@ -108,8 +108,14 @@ fi
 cp "$BUNDLED_NODE" "$APP_BUNDLE/Contents/MacOS/node"
 chmod +x "$APP_BUNDLE/Contents/MacOS/node"
 
+# Generate version.json from git tag
+GIT_TAG=$(cd "$SCRIPT_DIR" && git describe --tags --abbrev=0 2>/dev/null || echo "v3.0.0")
+echo "{\"tag\":\"$GIT_TAG\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$SCRIPT_DIR/version.json"
+echo "       Version: $GIT_TAG"
+
 # Copy app files
 APP_DIR="$APP_BUNDLE/Contents/Resources/app"
+cp "$SCRIPT_DIR/version.json" "$APP_DIR/"
 cp "$SCRIPT_DIR/lighting-server.js" "$APP_DIR/"
 cp "$SCRIPT_DIR/lighting-app.html" "$APP_DIR/" 2>/dev/null || true
 cp "$SCRIPT_DIR/lighting-app-V2A.html" "$APP_DIR/" 2>/dev/null || true

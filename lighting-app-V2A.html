@@ -6805,7 +6805,7 @@ function LightingTimeline() {
             {luminaTab==='update' && <>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:9,color:"#555",letterSpacing:1}}>SOURCE</span>
-                <span style={{flex:1,fontSize:10,color:"#6e7681",fontFamily:"monospace"}}>github.com / shtarkair / LUMINA-FX-V1A</span>
+                <span style={{flex:1,fontSize:10,color:"#6e7681",fontFamily:"monospace"}}>{updateInfo?.mode==='release'?'GitHub Releases':'github.com / shtarkair / Lumina-FX-V3A-Mac'}</span>
                 <button onClick={doUpdateCheck} disabled={updateStatus==='checking'||updateStatus==='applying'||updateStatus==='restarting'} style={{padding:"6px 14px",fontSize:10,fontWeight:"bold",letterSpacing:1,background:updateStatus==='checking'?"#0a2a1a":"#0c0e12",border:"1px solid #22cc5566",color:"#22cc55",borderRadius:8,cursor:"pointer",opacity:(updateStatus==='applying'||updateStatus==='restarting')?0.3:1}}>
                   {updateStatus==='checking'?'CHECKING...':'CHECK FOR UPDATES'}
                 </button>
@@ -6814,36 +6814,49 @@ function LightingTimeline() {
               {updateError && <div style={{background:"#1a0808",border:"1px solid #ff333344",borderRadius:8,padding:"8px 12px",fontSize:10,color:"#ff5544"}}>{updateError}</div>}
               {updateInfo && <>
                 <div style={{display:"flex",gap:16,padding:"6px 10px",background:"#080a0e",borderRadius:8,border:"1px solid #1e222a",flexWrap:"wrap"}}>
-                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                    <span style={{fontSize:8,color:"#555",letterSpacing:1}}>BRANCH</span>
-                    <span style={{fontSize:11,color:"#8b949e",fontFamily:"monospace"}}>{updateInfo.branch}</span>
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                    <span style={{fontSize:8,color:"#555",letterSpacing:1}}>LOCAL</span>
-                    <span style={{fontSize:11,color:"#8b949e",fontFamily:"monospace"}}>{updateInfo.localCommit}</span>
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                    <span style={{fontSize:8,color:"#555",letterSpacing:1}}>REMOTE</span>
-                    <span style={{fontSize:11,color:updateInfo.behind>0?"#22cc55":"#8b949e",fontFamily:"monospace"}}>{updateInfo.remoteCommit}</span>
-                  </div>
+                  {updateInfo.mode==='git' ? <>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:8,color:"#555",letterSpacing:1}}>BRANCH</span>
+                      <span style={{fontSize:11,color:"#8b949e",fontFamily:"monospace"}}>{updateInfo.branch}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:8,color:"#555",letterSpacing:1}}>LOCAL</span>
+                      <span style={{fontSize:11,color:"#8b949e",fontFamily:"monospace"}}>{updateInfo.localCommit}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:8,color:"#555",letterSpacing:1}}>REMOTE</span>
+                      <span style={{fontSize:11,color:updateInfo.behind>0?"#22cc55":"#8b949e",fontFamily:"monospace"}}>{updateInfo.remoteCommit}</span>
+                    </div>
+                  </> : <>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:8,color:"#555",letterSpacing:1}}>INSTALLED</span>
+                      <span style={{fontSize:11,color:"#8b949e",fontFamily:"monospace"}}>{updateInfo.localVersion}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:8,color:"#555",letterSpacing:1}}>LATEST</span>
+                      <span style={{fontSize:11,color:updateInfo.behind>0?"#22cc55":"#8b949e",fontFamily:"monospace"}}>{updateInfo.latestVersion}</span>
+                    </div>
+                  </>}
                   <div style={{display:"flex",flexDirection:"column",gap:2,marginLeft:"auto"}}>
                     <span style={{fontSize:8,color:"#555",letterSpacing:1}}>STATUS</span>
-                    <span style={{fontSize:11,color:updateInfo.behind>0?"#ffaa22":"#22cc55",fontWeight:"bold"}}>{updateInfo.behind > 0 ? updateInfo.behind + ' commit' + (updateInfo.behind>1?'s':'') + ' behind' : 'Up to date'}</span>
+                    <span style={{fontSize:11,color:updateInfo.behind>0?"#ffaa22":"#22cc55",fontWeight:"bold"}}>{updateInfo.behind > 0 ? (updateInfo.mode==='git' ? updateInfo.behind + ' commit' + (updateInfo.behind>1?'s':'') + ' behind' : 'Update available') : 'Up to date'}</span>
                   </div>
                 </div>
                 {updateInfo.commitMessages && updateInfo.commitMessages.length > 0 && (
                   <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                    <span style={{fontSize:8,color:"#555",letterSpacing:1}}>NEW COMMITS</span>
-                    {updateInfo.commitMessages.map((msg, i) => (
+                    <span style={{fontSize:8,color:"#555",letterSpacing:1}}>{updateInfo.mode==='release'?'RELEASE NOTES':'NEW COMMITS'}</span>
+                    {updateInfo.mode==='release' && updateInfo.releaseNotes ? (
+                      <div style={{fontSize:10,color:"#c9d1d9",padding:"6px 8px",background:"#0d1117",borderRadius:3,borderLeft:"2px solid #22cc5566",whiteSpace:"pre-wrap",lineHeight:"1.5"}}>{updateInfo.releaseNotes}</div>
+                    ) : updateInfo.commitMessages.map((msg, i) => (
                       <div key={i} style={{fontSize:10,color:"#c9d1d9",fontFamily:"monospace",padding:"3px 8px",background:"#0d1117",borderRadius:3,borderLeft:"2px solid #22cc5566"}}>{msg}</div>
                     ))}
                   </div>
                 )}
-                {updateInfo.changedFiles.length > 0 && (
+                {updateInfo.changedFiles && updateInfo.changedFiles.length > 0 && updateInfo.mode==='git' && (
                   <div style={{display:"flex",flexDirection:"column",gap:2}}>
                     <span style={{fontSize:8,color:"#555",letterSpacing:1}}>CHANGED FILES</span>
                     {updateInfo.changedFiles.map(fname => {
-                      const details = updateInfo.fileDetails[fname] || {};
+                      const details = (updateInfo.fileDetails||{})[fname] || {};
                       return (
                         <div key={fname} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"#0a1a0a",borderRadius:3}}>
                           <span style={{flex:1,fontSize:10,color:"#22cc55",fontFamily:"monospace"}}>{fname}</span>
@@ -6857,7 +6870,7 @@ function LightingTimeline() {
                 )}
                 {updateInfo.behind === 0 && <div style={{padding:"12px 0",textAlign:"center",fontSize:11,color:"#44ffaa88"}}>All files are up to date!</div>}
                 {updateInfo.behind > 0 && updateStatus!=='applying' && updateStatus!=='restarting' && (
-                  <button onClick={doApplyUpdate} style={{padding:"8px 16px",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0a2a1a",border:"1px solid #22cc5566",color:"#22cc55",borderRadius:8,cursor:"pointer",alignSelf:"flex-end"}}>{"\u21BB"} PULL UPDATE ({updateInfo.behind} commit{updateInfo.behind>1?'s':''})</button>
+                  <button onClick={doApplyUpdate} style={{padding:"8px 16px",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0a2a1a",border:"1px solid #22cc5566",color:"#22cc55",borderRadius:8,cursor:"pointer",alignSelf:"flex-end"}}>{"\u21BB"} {updateInfo.mode==='release'?'DOWNLOAD UPDATE':'PULL UPDATE'} {updateInfo.mode==='git'?'('+updateInfo.behind+' commit'+(updateInfo.behind>1?'s':'')+')':''}</button>
                 )}
               </>}
               {updateProgress && (updateStatus==='applying'||updateStatus==='restarting') && (

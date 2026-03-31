@@ -22,6 +22,33 @@ const UPDATE_FILES = [
   'package.json',
   'package-lock.json'
 ];
+const GITHUB_REPO = 'shtarkair/Lumina-FX-V3A-Mac';
+const IS_GIT_REPO = fs.existsSync(path.join(__dirname, '.git'));
+const VERSION_FILE = path.join(__dirname, 'version.json');
+function getLocalVersion() {
+  try { return JSON.parse(fs.readFileSync(VERSION_FILE, 'utf8')); }
+  catch(e) { return { tag: 'v0.0.0', date: '' }; }
+}
+
+// Helper: download a file from URL using Node.js built-in https
+function httpsGet(url) {
+  return new Promise((resolve, reject) => {
+    const https = require('https');
+    const get = (u) => {
+      https.get(u, { headers: { 'User-Agent': 'Lumina-FX' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return get(res.headers.location); // follow redirects
+        }
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      }).on('error', reject);
+    };
+    get(url);
+  });
+}
 
 // --- Gather local IP addresses (for feedback loop prevention) ---
 const localAddresses = new Set(['127.0.0.1', '::1', '0.0.0.0']);
@@ -409,154 +436,165 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // --- Software Update: check GitHub for new commits ---
+  // --- Software Update: check for new version ---
   if (req.url === '/api/update-check' && req.method === 'GET') {
-    try {
-      // Fetch latest from GitHub
-      execSync('git fetch origin', { cwd: __dirname, timeout: 15000, stdio: 'pipe' });
-
-      // Get local and remote commit info
-      const localCommit = execSync('git rev-parse HEAD', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-      const remoteCommit = execSync('git rev-parse origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-      const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-
-      // Count commits behind
-      const behindStr = execSync('git rev-list --count HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-      const behind = parseInt(behindStr) || 0;
-
-      // Get list of changed files (only tracked files between HEAD and origin/master)
-      let changedFiles = [];
-      let commitMessages = [];
-      if (behind > 0) {
-        const diffOutput = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-        changedFiles = diffOutput ? diffOutput.split('\n').filter(f => f.trim()) : [];
-        const logOutput = execSync('git log --oneline HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-        commitMessages = logOutput ? logOutput.split('\n').filter(l => l.trim()) : [];
+    if (IS_GIT_REPO) {
+      // === GIT MODE: use git fetch/compare ===
+      try {
+        execSync('git fetch origin', { cwd: __dirname, timeout: 15000, stdio: 'pipe' });
+        const localCommit = execSync('git rev-parse HEAD', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
+        const remoteCommit = execSync('git rev-parse origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
+        const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
+        const behind = parseInt(execSync('git rev-list --count HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim()) || 0;
+        let changedFiles = [], commitMessages = [];
+        if (behind > 0) {
+          const diffOutput = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
+          changedFiles = diffOutput ? diffOutput.split('\n').filter(f => f.trim()) : [];
+          const logOutput = execSync('git log --oneline HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().trim();
+          commitMessages = logOutput ? logOutput.split('\n').filter(l => l.trim()) : [];
+        }
+        const fileDetails = {};
+        for (const fname of changedFiles) {
+          const localSize = fs.existsSync(path.join(__dirname, fname)) ? fs.statSync(path.join(__dirname, fname)).size : 0;
+          let remoteSize = 0;
+          try { remoteSize = parseInt(execSync(`git cat-file -s origin/master:${fname}`, { cwd: __dirname, stdio: 'pipe' }).toString().trim()) || 0; } catch(e) {}
+          fileDetails[fname] = { localSize, remoteSize };
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, mode: 'git', branch, localCommit: localCommit.substring(0, 7), remoteCommit: remoteCommit.substring(0, 7), behind, changedFiles, fileDetails, commitMessages }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Git fetch failed: ' + e.message }));
       }
-
-      // Get file sizes for display
-      const fileDetails = {};
-      for (const fname of changedFiles) {
-        const fpath = path.join(__dirname, fname);
-        const localSize = fs.existsSync(fpath) ? fs.statSync(fpath).size : 0;
-        // Get remote file size from git
-        let remoteSize = 0;
+    } else {
+      // === RELEASE MODE: check GitHub Releases API ===
+      (async () => {
         try {
-          const blob = execSync(`git cat-file -s origin/master:${fname}`, { cwd: __dirname, stdio: 'pipe' }).toString().trim();
-          remoteSize = parseInt(blob) || 0;
-        } catch(e) { /* new file, no local version */ }
-        fileDetails[fname] = { localSize, remoteSize };
-      }
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        ok: true,
-        branch,
-        localCommit: localCommit.substring(0, 7),
-        remoteCommit: remoteCommit.substring(0, 7),
-        behind,
-        changedFiles,
-        fileDetails,
-        commitMessages
-      }));
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: 'Git fetch failed: ' + e.message }));
+          const data = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+          const release = JSON.parse(data.toString());
+          const local = getLocalVersion();
+          const latestTag = release.tag_name || 'unknown';
+          const hasUpdate = latestTag !== local.tag;
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            ok: true, mode: 'release',
+            localVersion: local.tag,
+            latestVersion: latestTag,
+            behind: hasUpdate ? 1 : 0,
+            releaseNotes: release.body || '',
+            releaseName: release.name || latestTag,
+            releaseDate: release.published_at || '',
+            changedFiles: hasUpdate ? UPDATE_FILES : [],
+            commitMessages: hasUpdate ? [latestTag + ' — ' + (release.name || 'New release')] : []
+          }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'GitHub check failed: ' + e.message }));
+        }
+      })();
     }
     return;
   }
 
-  // --- Software Update: pull from GitHub + restart ---
+  // --- Software Update: apply update + restart ---
   if (req.url === '/api/apply-update' && req.method === 'POST') {
-    try {
-      // 1. Create backup of core files before pulling
-      const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
-      fs.mkdirSync(backupDir, { recursive: true });
-      for (const fname of UPDATE_FILES) {
-        const src = path.join(__dirname, fname);
-        if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(backupDir, fname));
-        }
-      }
-      console.log('[UPDATE] Backup created:', backupDir);
-
-      // 2. Check if package.json will change
-      let packageWillChange = false;
-      try {
-        const diff = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString();
-        packageWillChange = diff.includes('package.json');
-      } catch(e) {}
-
-      // 3. Git pull from origin
-      const pullOutput = execSync('git pull origin master', { cwd: __dirname, timeout: 30000, stdio: 'pipe' }).toString().trim();
-      console.log('[UPDATE] Git pull:', pullOutput);
-
-      // 4. npm install if package.json changed
-      if (packageWillChange) {
-        try {
-          console.log('[UPDATE] Running npm install...');
-          execSync('npm install', { cwd: __dirname, timeout: 30000, stdio: 'pipe' });
-          console.log('[UPDATE] npm install complete');
-        } catch (e) {
-          console.error('[UPDATE] npm install failed:', e.message);
-        }
-      }
-
-      // 5. Send success response
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, pullOutput, backup: backupDir }));
-
-      // 6. Broadcast restart warning then restart
+    const doRestart = () => {
       setTimeout(() => {
         broadcastToClients({ type: 'server_restarting' });
-
-        // Write a tiny helper script that waits for port to free, then starts new server
         const helperPath = path.join(__dirname, '.restart-helper.js');
         const helperCode = `
 const { spawn } = require('child_process');
 const net = require('net');
 const path = require('path');
-
 function waitForPortFree(port, cb) {
   const s = net.createServer();
   s.once('error', () => setTimeout(() => waitForPortFree(port, cb), 500));
   s.once('listening', () => { s.close(() => cb()); });
   s.listen(port);
 }
-
 setTimeout(() => {
   waitForPortFree(${PORT}, () => {
     const nodePath = process.argv[0] || 'node';
     const serverPath = path.join(__dirname, 'lighting-server.js');
-    const child = spawn(nodePath, [serverPath], {
-      cwd: __dirname,
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env }
-    });
+    const child = spawn(nodePath, [serverPath], { cwd: __dirname, detached: true, stdio: 'ignore', env: { ...process.env } });
     child.unref();
-    console.log('[RESTART HELPER] New server spawned, PID:', child.pid);
     process.exit(0);
   });
 }, 1000);
 `;
         fs.writeFileSync(helperPath, helperCode);
-
-        const child = spawn(process.argv[0], [helperPath], {
-          cwd: __dirname,
-          detached: true,
-          stdio: 'ignore'
-        });
+        const child = spawn(process.argv[0], [helperPath], { cwd: __dirname, detached: true, stdio: 'ignore' });
         child.unref();
         console.log('[UPDATE] Restart helper spawned, exiting...');
-
         setTimeout(() => process.exit(0), 500);
       }, 300);
+    };
 
-    } catch (e) {
-      console.error('[UPDATE] Apply error:', e.message);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: e.message }));
+    if (IS_GIT_REPO) {
+      // === GIT MODE ===
+      try {
+        const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
+        fs.mkdirSync(backupDir, { recursive: true });
+        for (const fname of UPDATE_FILES) {
+          const src = path.join(__dirname, fname);
+          if (fs.existsSync(src)) fs.copyFileSync(src, path.join(backupDir, fname));
+        }
+        let packageWillChange = false;
+        try { packageWillChange = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().includes('package.json'); } catch(e) {}
+        const pullOutput = execSync('git pull origin master', { cwd: __dirname, timeout: 30000, stdio: 'pipe' }).toString().trim();
+        if (packageWillChange) { try { execSync('npm install', { cwd: __dirname, timeout: 30000, stdio: 'pipe' }); } catch(e) {} }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, pullOutput, backup: backupDir }));
+        doRestart();
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    } else {
+      // === RELEASE MODE: download files from GitHub ===
+      (async () => {
+        try {
+          // Get latest release tag
+          const releaseData = await httpsGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+          const release = JSON.parse(releaseData.toString());
+          const tag = release.tag_name;
+
+          // Backup current files
+          const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
+          fs.mkdirSync(backupDir, { recursive: true });
+          for (const fname of UPDATE_FILES) {
+            const src = path.join(__dirname, fname);
+            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(backupDir, fname));
+          }
+          console.log('[UPDATE] Backup created:', backupDir);
+
+          // Download each file from GitHub at the release tag
+          let downloaded = 0;
+          for (const fname of UPDATE_FILES) {
+            const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/${tag}/${fname}`;
+            try {
+              const fileData = await httpsGet(url);
+              fs.writeFileSync(path.join(__dirname, fname), fileData);
+              downloaded++;
+              console.log('[UPDATE] Downloaded:', fname, `(${fileData.length} bytes)`);
+            } catch (e) {
+              console.log('[UPDATE] Skipped:', fname, '(' + e.message + ')');
+            }
+          }
+
+          // Update version.json
+          fs.writeFileSync(VERSION_FILE, JSON.stringify({ tag, date: new Date().toISOString() }));
+          console.log('[UPDATE] Version updated to', tag);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, tag, downloaded, backup: backupDir }));
+          doRestart();
+        } catch (e) {
+          console.error('[UPDATE] Apply error:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      })();
     }
     return;
   }
