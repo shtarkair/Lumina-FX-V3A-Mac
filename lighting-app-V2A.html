@@ -2786,8 +2786,8 @@ function LightingTimeline() {
     if (midiConnected) {
       // Disconnect
       if (serverMidiRef.current) {
-        // Close server-side MIDI
-        const ws = outputWsRef.current;
+        // Close server-side MIDI via global WS ref
+        const ws = window.__luminaOutputWs;
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'midi_close'}));
         serverMidiRef.current = false;
       } else if (midiAccessRef.current) {
@@ -2808,11 +2808,10 @@ function LightingTimeline() {
         return;
       } catch(err) { /* fall through to server MIDI */ }
     }
-    // Fall back to server-side MIDI
-    const ws = outputWsRef.current;
+    // Fall back to server-side MIDI via global WS ref
+    const ws = window.__luminaOutputWs;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({type:'midi_scan'}));
-      // Response handled in WS message listener — will auto-open first port
       serverMidiRef.current = true;
     } else {
       alert("MIDI not available: no browser support and no server connection.");
@@ -3879,6 +3878,7 @@ function LightingTimeline() {
         ws.onclose = () => { setOutputConnected(false); if (!closed) outputReconnectRef.current = setTimeout(connect, 2000); };
         ws.onerror = () => ws.close();
         outputWsRef.current = ws;
+        window.__luminaOutputWs = ws; // expose for MIDI toggle
       } catch(e) { if (!closed) outputReconnectRef.current = setTimeout(connect, 2000); }
     };
     connect();
