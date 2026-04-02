@@ -3671,8 +3671,8 @@ function LightingTimeline() {
         if(playheadLineRef.current){
           playheadLineRef.current.style.left=(next*bwRef.current-0.5)+'px';
         }
-        // Throttle React re-renders to ~4Hz (every 250ms) — DMX uses refs at full speed
-        if(now-lastVisualUpdateRef.current>=250){
+        // Throttle React re-renders to ~10Hz (every 100ms) — smooth pad fills + good perf
+        if(now-lastVisualUpdateRef.current>=100){
           lastVisualUpdateRef.current=now;
           setDisplayPlayhead(next);
         }
