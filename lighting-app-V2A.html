@@ -2633,6 +2633,83 @@ const GroupRowMemo = React.memo(function GroupRowMemo({gk,isExp,group,fixtureId,
   );
 });
 
+const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,paramId,isMuted,laneCues,liveVal,floorVal,hasFloor,overrideVal,lmeAssigned,ri,y,h,rulerH,waveformH,bw,loopEnabled,loopStart,loopEnd,rightTab,fxStart,fxEnd,fxGhostCues,timeGhostCues,fanGhostCues,displayPlayhead,selectedCue,selectedCues,splitMode,tool,handleCueMouseDown,handleCueTouchStart,onMuteToggle,onFloorClick,onLmeToggle,onValueClick,onLaneSelect,LABEL_W,PARAM_LABEL_W,totalW,TOTAL_BEATS}){
+  const beatToX=b=>b*bw;
+  return(
+    <div style={{position:"absolute",top:rulerH+waveformH+y,width:LABEL_W+PARAM_LABEL_W+totalW,height:h,display:"flex",background:isMuted?"#0d0d10":ri%2===0?"#000":"#06060a",borderBottom:"1px solid rgba(255,255,255,0.04)",contain:"layout paint"}}>
+      <div style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)"}}/>
+      <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
+        <div style={{width:3,height:20,borderRadius:1,background:param.color,opacity:isMuted?0.25:0.8,flexShrink:0}}/>
+        <div onClick={onLaneSelect} style={{flex:1,minWidth:0,opacity:isMuted?0.35:1,cursor:"pointer"}}>
+          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap",overflow:"hidden"}}>{param.label}</div>
+          <div style={{fontSize:7,color:"rgba(255,255,255,0.22)"}}>{param.min}-{param.max}{param.unit}</div>
+        </div>
+        <div onClick={onFloorClick} className={hasFloor?"floor-flash":""} style={{padding:"1px 3px",fontSize:8,fontWeight:"bold",background:"transparent",border:hasFloor?"1px solid #00ff4444":"1px solid #334",color:hasFloor?"#00ff44":"#667",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,minWidth:18,textAlign:"center"}} title="Floor value (minimum output)">{hasFloor?floorVal:"F"}</div>
+        <button onClick={onMuteToggle} style={{padding:"1px 4px",fontSize:8,fontWeight:"bold",background:isMuted?"#ff440033":"transparent",border:isMuted?"1px solid #ff440066":"1px solid #334",color:isMuted?"#ff6633":"#778",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,letterSpacing:0.5}}>B.O</button>
+        <button onClick={onLmeToggle} className={lmeAssigned?'lme-flash':''} style={{padding:"1px 3px",fontSize:7,fontWeight:"bold",background:"transparent",border:lmeAssigned?"1px solid #00ffee44":"1px solid #1a2030",color:lmeAssigned?"#00ffee":"#2a3548",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,minWidth:20,textAlign:"center"}} title="Assign to LME group">LME</button>
+        <div onClick={onValueClick} className={overrideVal!==undefined?"park-flash":""} style={{fontSize:10,fontWeight:"bold",color:isMuted?"#ff440066":overrideVal!==undefined?"#ff2244":liveVal!==undefined?"#4488ff":"rgba(255,255,255,0.15)",minWidth:28,textAlign:"right",flexShrink:0,cursor:isMuted?"default":"pointer",borderRadius:3,padding:"1px 2px",background:"transparent"}}>
+          {isMuted?"M":overrideVal!==undefined?overrideVal:liveVal!==undefined?Math.round(liveVal):"\u2014"}
+        </div>
+      </div>
+      <div style={{position:"relative",flex:1,height:"100%",overflow:"hidden"}}>
+        <BeatGrid totalBeats={TOTAL_BEATS} beatWidth={bw}/>
+        {loopEnabled&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.05)",pointerEvents:"none"}}/>}
+        {rightTab==="fx"&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(fxStart),width:beatToX(fxEnd-fxStart),background:"rgba(187,68,255,0.05)",pointerEvents:"none"}}/>}
+        {isMuted&&<div style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",background:"repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(255,68,0,0.03) 8px,rgba(255,68,0,0.03) 16px)",pointerEvents:"none",zIndex:4}}/>}
+        {laneCues.map(cue=>{
+          const isCueMuted=cue.muted===true;
+          const isActive=!isMuted&&!isCueMuted&&displayPlayhead>=cue.beat&&displayPlayhead<cue.beat+cue.duration;
+          const isSel=selectedCue===cue.id||selectedCues.has(cue.id);
+          const cueW=Math.max(4,beatToX(cue.duration)-2);
+          const cueH=h-4;
+          const cc=isCueMuted?"#ff4444":param.color;
+          return(
+            <div key={cue.id} data-cue={cue.id} onMouseDown={e=>handleCueMouseDown(e,cue)} onTouchStart={e=>handleCueTouchStart(e,cue)} style={{position:"absolute",left:beatToX(cue.beat)+1,width:cueW,top:2,height:cueH,opacity:isMuted?0.2:isCueMuted?0.55:1,background:isSel?`linear-gradient(180deg,${cc}55,${cc}22)`:isActive?`linear-gradient(180deg,${cc}33,${cc}11)`:`linear-gradient(180deg,${cc}22,${cc}08)`,border:isSel?`1px solid ${cc}`:`1px solid ${cc}44`,borderRadius:5,cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":tool==="erase"?"not-allowed":"grab",overflow:"hidden",boxShadow:isSel?`0 0 6px ${cc}66`:isActive?`0 0 8px ${cc}44`:"none",zIndex:isSel?3:1}}>
+              <CurvePath cue={cue} w={cueW} h={cueH} color="#66ffaa" isActive={isActive}/>
+              <div style={{position:"absolute",top:2,left:3,fontSize:7,color:cc,opacity:isActive?0.9:0.5,pointerEvents:"none"}}>{isCueMuted?"\uD83D\uDD07":EASINGS[cue.easing||"linear"].icon}</div>
+              <div style={{position:"absolute",bottom:2,left:3,fontSize:8,color:"#aaffcc",opacity:isCueMuted?0.4:0.9,pointerEvents:"none",whiteSpace:"nowrap"}}>{cue.value}{param.unit}</div>
+              <div data-resize="true" style={STYLES.resizeHandle}/>
+            </div>
+          );
+        })}
+        {rightTab==="fx"&&fxGhostCues.map((gc,gi)=>{
+          const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
+          return <div key={"ghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#4488ff06",border:"1px dashed #4488ff18",borderRadius:3,pointerEvents:"none",zIndex:2}}><CurvePath cue={gc} w={gcW} h={gcH} color="#4488ff" isActive={true}/></div>;
+        })}
+        {timeGhostCues.map((gc,gi)=>{
+          const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
+          return <div key={"tghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#44cc4406",border:"1px dashed #44cc4430",borderRadius:3,pointerEvents:"none",zIndex:2}}><CurvePath cue={gc} w={gcW} h={gcH} color="#44cc44" isActive={true}/></div>;
+        })}
+        {fanGhostCues.map((gc,gi)=>{
+          const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
+          return <div key={"fghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#cc44ff06",border:"1px dashed #cc44ff30",borderRadius:3,pointerEvents:"none",zIndex:2}}><CurvePath cue={gc} w={gcW} h={gcH} color="#cc44ff" isActive={true}/></div>;
+        })}
+      </div>
+    </div>
+  );
+}, function(prev,next){
+  // Custom comparator: skip re-render if nothing visual changed
+  if(prev.liveVal!==next.liveVal) return false;
+  if(prev.isMuted!==next.isMuted) return false;
+  if(prev.hasFloor!==next.hasFloor||prev.floorVal!==next.floorVal) return false;
+  if(prev.overrideVal!==next.overrideVal) return false;
+  if(prev.lmeAssigned!==next.lmeAssigned) return false;
+  if(prev.laneCues!==next.laneCues) return false;
+  if(prev.selectedCue!==next.selectedCue||prev.selectedCues!==next.selectedCues) return false;
+  if(prev.bw!==next.bw) return false;
+  if(prev.loopEnabled!==next.loopEnabled||prev.loopStart!==next.loopStart||prev.loopEnd!==next.loopEnd) return false;
+  if(prev.rightTab!==next.rightTab) return false;
+  if(prev.fxGhostCues!==next.fxGhostCues||prev.timeGhostCues!==next.timeGhostCues||prev.fanGhostCues!==next.fanGhostCues) return false;
+  if(prev.splitMode!==next.splitMode||prev.tool!==next.tool) return false;
+  // Only re-render for playhead if a cue boundary was crossed in this lane
+  if(prev.displayPlayhead!==next.displayPlayhead){
+    const hasCueAtPrev=prev.laneCues.some(c=>!c.muted&&prev.displayPlayhead>=c.beat&&prev.displayPlayhead<c.beat+c.duration);
+    const hasCueAtNext=next.laneCues.some(c=>!c.muted&&next.displayPlayhead>=c.beat&&next.displayPlayhead<c.beat+c.duration);
+    if(hasCueAtPrev!==hasCueAtNext) return false;
+  }
+  return true;
+});
+
 const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudioMode, audioFileName, audioLevel, beatDetected, detectedBpm, audioVolume, setAudioVolume, audioMuted, setAudioMuted, onFileLoad, bpm, setBpm }) {
   const fileInputRef = useRef(null);
   return (
@@ -3667,6 +3744,15 @@ function LightingTimeline() {
     }
     return map;
   },[cueIndex,displayPlayhead,mutedLanes,paramFloors,paramOverrides]);
+
+  // Precompute which fixtures have active values (O(1) lookup instead of O(n) scan per fixture row)
+  const activeFixtures = useMemo(() => {
+    const set = new Set();
+    for (const [k, v] of Object.entries(liveValues)) {
+      if (v > 0) set.add(k.split('-')[0]);
+    }
+    return set;
+  }, [liveValues]);
 
   // Output engine: send liveValues → WebSocket → bridge server → ArtNet/sACN
   const liveValuesRef = useRef({});
@@ -4860,7 +4946,7 @@ function LightingTimeline() {
               if(row.type==="fixture"){
                 const fx=fixtures.find(f=>f.id===row.fixtureId);
                 const isExp=expandedFixtures.has(fx.id);
-                const hasActive=Object.entries(liveValues).some(([k,v])=>k.startsWith(fx.id+"-")&&v>0);
+                const hasActive=activeFixtures.has(String(fx.id));
                 const isFxSel=fxSelectedFixtures.has(fx.id);
                 return <FixtureRowMemo key={`fx-${fx.id}`} fx={fx} isExp={isExp} hasActive={hasActive} isFxSel={isFxSel} cueCount={(cueIndex&&cueIndex._fxCounts&&cueIndex._fxCounts.get(fx.id))||0} focusMode={focusMode} isFocusExpanded={focusExpandedFx.has(fx.id)} onToggle={()=>{if(focusMode){setFocusExpandedFx(prev=>{const s=new Set(prev);s.has(fx.id)?s.delete(fx.id):s.add(fx.id);return s;});}else{toggleFixture(fx.id);}}} bw={bw} fxStart={fxStart} fxEnd={fxEnd} scrollLeft={scrollLeft} totalW={totalW} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W}/>;
               }
@@ -4873,73 +4959,11 @@ function LightingTimeline() {
                 const param=row.param;
                 const laneKey=`${row.fixtureId}-${row.paramId}`;
                 const isMuted=mutedLanes.has(laneKey);
-                const toggleMute=()=>setMutedLanes(prev=>{const n=new Set(prev);if(n.has(laneKey))n.delete(laneKey);else n.add(laneKey);return n;});
                 const laneCues=cueIndex.get(laneKey)||[];
                 const liveVal=liveValues[laneKey];
                 const floorVal=paramFloors[laneKey]||0;
                 const hasFloor=floorVal>0;
-                return(
-                  <div key={laneKey} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:isMuted?"#0d0d10":ri%2===0?"#000":"#06060a",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-                    <div style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)"}}/>
-                    <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
-                      <div style={{width:3,height:20,borderRadius:1,background:param.color,opacity:isMuted?0.25:0.8,flexShrink:0}}/>
-                      <div onClick={e=>{e.stopPropagation();const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&c.param===row.paramId).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(param.color);}}} style={{flex:1,minWidth:0,opacity:isMuted?0.35:1,cursor:"pointer"}}>
-                        <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap",overflow:"hidden"}}>{param.label}</div>
-                        <div style={{fontSize:7,color:"rgba(255,255,255,0.22)"}}>{param.min}-{param.max}{param.unit}</div>
-                      </div>
-                      <div onClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'param_floor',laneKey,paramMin:param.min,paramMax:param.max,paramLabel:param.label,paramColor:param.color,paramUnit:param.unit||'',value:String(floorVal),rect:{top:r.bottom+2,left:r.left},dirty:false});}} className={hasFloor?"floor-flash":""} style={{padding:"1px 3px",fontSize:8,fontWeight:"bold",background:hasFloor?"transparent":"transparent",border:hasFloor?"1px solid #00ff4444":"1px solid #334",color:hasFloor?"#00ff44":"#667",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,minWidth:18,textAlign:"center"}} title="Floor value (minimum output)">{hasFloor?floorVal:"F"}</div>
-                      <button onClick={toggleMute} style={{padding:"1px 4px",fontSize:8,fontWeight:"bold",background:isMuted?"#ff440033":"transparent",border:isMuted?"1px solid #ff440066":"1px solid #334",color:isMuted?"#ff6633":"#778",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,letterSpacing:0.5}}>B.O</button>
-                      <button onClick={e=>{e.stopPropagation();setLmeAssigned(prev=>{const n={...prev};if(n[laneKey])delete n[laneKey];else n[laneKey]={pMin:param.min,pMax:param.max,label:param.label};return n;});}} className={lmeAssigned[laneKey]?'lme-flash':''} style={{padding:"1px 3px",fontSize:7,fontWeight:"bold",background:lmeAssigned[laneKey]?"transparent":"transparent",border:lmeAssigned[laneKey]?"1px solid #00ffee44":"1px solid #1a2030",color:lmeAssigned[laneKey]?"#00ffee":"#2a3548",borderRadius:2,cursor:"pointer",lineHeight:1.2,flexShrink:0,minWidth:20,textAlign:"center"}} title="Assign to LME group">LME</button>
-                      <div onClick={e=>{e.stopPropagation();if(isMuted)return;const r=e.currentTarget.getBoundingClientRect();const curVal=liveVal!==undefined?Math.round(liveVal):paramOverrides[laneKey]??Math.round((param.min+param.max)/2);setKeypadState({field:'param_value',laneKey,fixtureId:row.fixtureId,paramId:row.paramId,paramMin:param.min,paramMax:param.max,paramColor:param.color,paramLabel:param.label,paramUnit:param.unit||'',value:String(curVal),dirty:false,rect:{top:r.top,left:r.right+4}});}} className={paramOverrides[laneKey]!==undefined?"park-flash":""} style={{fontSize:10,fontWeight:"bold",color:isMuted?"#ff440066":paramOverrides[laneKey]!==undefined?"#ff2244":liveVal!==undefined?"#4488ff":"rgba(255,255,255,0.15)",minWidth:28,textAlign:"right",flexShrink:0,cursor:isMuted?"default":"pointer",borderRadius:3,padding:"1px 2px",background:paramOverrides[laneKey]!==undefined?"transparent":"transparent"}}>
-                        {isMuted?"M":paramOverrides[laneKey]!==undefined?paramOverrides[laneKey]:liveVal!==undefined?Math.round(liveVal):"\u2014"}
-                      </div>
-                    </div>
-                    <div style={{position:"relative",flex:1,height:"100%",overflow:"hidden"}}>
-                      <BeatGrid totalBeats={TOTAL_BEATS} beatWidth={bw}/>
-                      {loopEnabled&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.05)",pointerEvents:"none"}}/>}
-                      {rightTab==="fx"&&<div style={{position:"absolute",top:0,height:"100%",left:beatToX(fxStart),width:beatToX(fxEnd-fxStart),background:"rgba(187,68,255,0.05)",pointerEvents:"none"}}/>}
-                      {isMuted&&<div style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",background:"repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(255,68,0,0.03) 8px,rgba(255,68,0,0.03) 16px)",pointerEvents:"none",zIndex:4}}/>}
-                      {laneCues.map(cue=>{
-                        const isCueMuted=cue.muted===true;
-                        const isActive=!isMuted&&!isCueMuted&&displayPlayhead>=cue.beat&&displayPlayhead<cue.beat+cue.duration;
-                        const isSel=selectedCue===cue.id||selectedCues.has(cue.id);
-                        const cueW=Math.max(4,beatToX(cue.duration)-2);
-                        const cueH=row.h-4;
-                        const cc=isCueMuted?"#ff4444":param.color;
-                        return(
-                          <div key={cue.id} data-cue={cue.id} onMouseDown={e=>handleCueMouseDown(e,cue)} onTouchStart={e=>handleCueTouchStart(e,cue)} style={{position:"absolute",left:beatToX(cue.beat)+1,width:cueW,top:2,height:cueH,opacity:isMuted?0.2:isCueMuted?0.55:1,background:isSel?`linear-gradient(180deg,${cc}55,${cc}22)`:isActive?`linear-gradient(180deg,${cc}33,${cc}11)`:`linear-gradient(180deg,${cc}22,${cc}08)`,border:isSel?`1px solid ${cc}`:`1px solid ${cc}44`,borderRadius:5,cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":tool==="erase"?"not-allowed":"grab",overflow:"hidden",boxShadow:isSel?`0 0 6px ${cc}66`:isActive?`0 0 8px ${cc}44`:"none",zIndex:isSel?3:1}}>
-                            <CurvePath cue={cue} w={cueW} h={cueH} color="#66ffaa" isActive={isActive}/>
-                            <div style={{position:"absolute",top:2,left:3,fontSize:7,color:cc,opacity:isActive?0.9:0.5,pointerEvents:"none"}}>{isCueMuted?"\uD83D\uDD07":EASINGS[cue.easing||"linear"].icon}</div>
-                            <div style={{position:"absolute",bottom:2,left:3,fontSize:8,color:"#aaffcc",opacity:isCueMuted?0.4:0.9,pointerEvents:"none",whiteSpace:"nowrap"}}>{cue.value}{param.unit}</div>
-                            <div data-resize="true" style={STYLES.resizeHandle}/>
-                          </div>
-                        );
-                      })}
-                      {rightTab==="fx"&&fxGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId).map((gc,gi)=>{
-                        const gcW=Math.max(4,beatToX(gc.duration)-2);
-                        const gcH=row.h-4;
-                        const gcc=param.color;
-                        return <div key={"ghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:`#4488ff06`,border:`1px dashed #4488ff18`,borderRadius:3,pointerEvents:"none",zIndex:2}}>
-                          <CurvePath cue={gc} w={gcW} h={gcH} color="#4488ff" isActive={true}/>
-                        </div>;
-                      })}
-                      {timeGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId).map((gc,gi)=>{
-                        const gcW=Math.max(4,beatToX(gc.duration)-2);
-                        const gcH=row.h-4;
-                        return <div key={"tghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#44cc4406",border:"1px dashed #44cc4430",borderRadius:3,pointerEvents:"none",zIndex:2}}>
-                          <CurvePath cue={gc} w={gcW} h={gcH} color="#44cc44" isActive={true}/>
-                        </div>;
-                      })}
-                      {fanGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId).map((gc,gi)=>{
-                        const gcW=Math.max(4,beatToX(gc.duration)-2);
-                        const gcH=row.h-4;
-                        return <div key={"fghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#cc44ff06",border:"1px dashed #cc44ff30",borderRadius:3,pointerEvents:"none",zIndex:2}}>
-                          <CurvePath cue={gc} w={gcW} h={gcH} color="#cc44ff" isActive={true}/>
-                        </div>;
-                      })}
-                    </div>
-                  </div>
-                );
+                return <ParamRowMemo key={laneKey} param={param} laneKey={laneKey} fixtureId={row.fixtureId} paramId={row.paramId} isMuted={isMuted} laneCues={laneCues} liveVal={liveVal} floorVal={floorVal} hasFloor={hasFloor} overrideVal={paramOverrides[laneKey]} lmeAssigned={!!lmeAssigned[laneKey]} ri={ri} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} bw={bw} loopEnabled={loopEnabled} loopStart={loopStart} loopEnd={loopEnd} rightTab={rightTab} fxStart={fxStart} fxEnd={fxEnd} fxGhostCues={fxGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} timeGhostCues={timeGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} fanGhostCues={fanGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} displayPlayhead={displayPlayhead} selectedCue={selectedCue} selectedCues={selectedCues} splitMode={splitMode} tool={tool} handleCueMouseDown={handleCueMouseDown} handleCueTouchStart={handleCueTouchStart} onMuteToggle={()=>setMutedLanes(prev=>{const n=new Set(prev);if(n.has(laneKey))n.delete(laneKey);else n.add(laneKey);return n;})} onFloorClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'param_floor',laneKey,paramMin:param.min,paramMax:param.max,paramLabel:param.label,paramColor:param.color,paramUnit:param.unit||'',value:String(floorVal),rect:{top:r.bottom+2,left:r.left},dirty:false});}} onLmeToggle={e=>{e.stopPropagation();setLmeAssigned(prev=>{const n={...prev};if(n[laneKey])delete n[laneKey];else n[laneKey]={pMin:param.min,pMax:param.max,label:param.label};return n;});}} onValueClick={e=>{e.stopPropagation();if(isMuted)return;const r=e.currentTarget.getBoundingClientRect();const curVal=liveVal!==undefined?Math.round(liveVal):paramOverrides[laneKey]??Math.round((param.min+param.max)/2);setKeypadState({field:'param_value',laneKey,fixtureId:row.fixtureId,paramId:row.paramId,paramMin:param.min,paramMax:param.max,paramColor:param.color,paramLabel:param.label,paramUnit:param.unit||'',value:String(curVal),dirty:false,rect:{top:r.top,left:r.right+4}});}} onLaneSelect={e=>{e.stopPropagation();const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&c.param===row.paramId).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(param.color);}}} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W} totalW={totalW} TOTAL_BEATS={TOTAL_BEATS}/>;
               }
               return null;
             })}

@@ -281,6 +281,7 @@ let outputRate = 25; // ms between frames (40Hz)
 let outputInterval = null;
 let outputEnabled = false;
 let lastVizState = null; // latest fixture layout + live values for /viz page
+let vizClientCount = 0; // track viz page connections for conditional push
 
 // --- Monitor config ---
 let monitorEnabled = false;
@@ -1551,6 +1552,12 @@ wss.on('connection', (ws) => {
         broadcastToClients(msg); // relay to /viz page
         return;
       }
+      if (msg.type === 'viz_subscribe') {
+        ws._isVizClient = true;
+        vizClientCount++;
+        console.log(`[VIZ] Client subscribed (${vizClientCount} active)`);
+        return;
+      }
       if (msg.type === 'output_control') {
         outputEnabled = !!msg.enabled;
         if (outputEnabled) startOutputLoop();
@@ -1593,6 +1600,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('[WS] Client disconnected');
+    if (ws._isVizClient) { vizClientCount = Math.max(0, vizClientCount - 1); console.log(`[VIZ] Client disconnected (${vizClientCount} active)`); }
     // Clear client overrides so pass-through continues clean
     for (let u = 0; u <= MAX_UNIVERSES; u++) clientOverrides[u] = null;
     // Keep output loop running if input is active (show safety)
@@ -1603,14 +1611,12 @@ wss.on('connection', (ws) => {
   });
 });
 
-// --- Viz push loop: broadcast lastVizState to all clients at 20fps ---
-// This ensures viz.html always receives live updates independently of
-// the main app's output WebSocket reconnection cycles.
+// --- Viz push loop: broadcast lastVizState only when viz clients are connected ---
 setInterval(() => {
-  if (!lastVizState) return;
+  if (!lastVizState || vizClientCount === 0) return;
   const json = JSON.stringify(lastVizState);
   wss.clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(json);
+    if (ws.readyState === WebSocket.OPEN && ws._isVizClient) ws.send(json);
   });
 }, 50);
 
