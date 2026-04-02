@@ -20,7 +20,9 @@ const UPDATE_FILES = [
   'lighting-server.js',
   'fixture-library.json',
   'package.json',
-  'package-lock.json'
+  'package-lock.json',
+  'lumina-webview.swift',
+  'build-installer.sh'
 ];
 const GITHUB_REPO = 'shtarkair/Lumina-FX-V3A-Mac';
 // Detect if running from git repo: check for .git AND that git commands work

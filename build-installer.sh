@@ -108,6 +108,17 @@ fi
 cp "$BUNDLED_NODE" "$APP_BUNDLE/Contents/MacOS/node"
 chmod +x "$APP_BUNDLE/Contents/MacOS/node"
 
+# Compile native WKWebView window
+echo "       Compiling native window (lumina-webview)..."
+if [ -f "$SCRIPT_DIR/lumina-webview.swift" ]; then
+  swiftc -O -o "$APP_BUNDLE/Contents/MacOS/lumina-webview" "$SCRIPT_DIR/lumina-webview.swift" \
+    -framework Cocoa -framework WebKit -target "${ARCH}-apple-macosx12.0" 2>/dev/null || {
+    echo "       WARNING: Swift compilation failed — will fall back to browser"
+  }
+else
+  echo "       WARNING: lumina-webview.swift not found — will use browser"
+fi
+
 # Generate version.json from git tag
 GIT_TAG=$(cd "$SCRIPT_DIR" && git describe --tags --abbrev=0 2>/dev/null || echo "v3.0.0")
 echo "{\"tag\":\"$GIT_TAG\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$SCRIPT_DIR/version.json"
@@ -197,12 +208,20 @@ if [ "$READY" = false ]; then
   exit 1
 fi
 
-# Open in browser
-open "http://localhost:$PORT"
-notify "Lumina FX is running"
-
-# Keep alive until server exits
-wait $SERVER_PID
+# Open native window (or fall back to browser)
+WEBVIEW_BIN="$APP_CONTENTS/MacOS/lumina-webview"
+if [ -x "$WEBVIEW_BIN" ]; then
+  notify "Lumina FX is running"
+  "$WEBVIEW_BIN" &
+  WEBVIEW_PID=$!
+  # Keep alive until either server or webview exits
+  wait $WEBVIEW_PID 2>/dev/null
+  kill $SERVER_PID 2>/dev/null
+else
+  open "http://localhost:$PORT"
+  notify "Lumina FX is running"
+  wait $SERVER_PID
+fi
 LAUNCHER
 
 chmod +x "$APP_BUNDLE/Contents/MacOS/lumina-start"

@@ -17,12 +17,12 @@
       0%,100% { color: #ff0022; background: #ff002255; box-shadow: 0 0 10px #ff0022cc, 0 0 20px #ff002266; border-radius: 3px; }
       45%,55% { color: #ffffff;  background: #ff002299; box-shadow: 0 0 18px #ff2244ff, 0 0 36px #ff224499; border-radius: 3px; }
     }
-    .park-flash { animation: parkFlash 0.42s ease-in-out infinite; }
+    .park-flash { animation: parkFlash 0.8s ease-in-out infinite; }
     @keyframes floorFlash {
       0%,100% { color: #00ff44; background: #00ff4455; box-shadow: 0 0 10px #00ff44cc, 0 0 20px #00ff4466; border-radius: 3px; }
       45%,55% { color: #ffffff;  background: #00ff4499; box-shadow: 0 0 18px #44ff77ff, 0 0 36px #44ff7799; border-radius: 3px; }
     }
-    .floor-flash { animation: floorFlash 0.42s ease-in-out infinite; }
+    .floor-flash { animation: floorFlash 0.8s ease-in-out infinite; }
     @keyframes lmeFlash {
       0%,100% { color:#00ffee; background:#00ffee44; box-shadow:0 0 10px #00ffeecc,0 0 20px #00ffee66; border-radius:2px; }
       45%,55% { color:#ffffff; background:#00ffee99; box-shadow:0 0 18px #00ffeeff,0 0 36px #00ffee99; border-radius:2px; }
@@ -2597,6 +2597,42 @@ const WaveformCanvas = React.memo(function WaveformCanvas({ peaks, durationBeats
   return <canvas ref={canvasRef} style={{position:'absolute',top:0,left:0,width:width,height:height,pointerEvents:'none'}} />;
 });
 
+// ── Memoized Timeline Row Components (v3.3.0 perf) ──
+const FixtureRowMemo = React.memo(function FixtureRowMemo({fx,isExp,hasActive,isFxSel,cueCount,focusMode,isFocusExpanded,onToggle,bw,fxStart,fxEnd,scrollLeft,totalW,y,h,rulerH,waveformH,LABEL_W,PARAM_LABEL_W}){
+  const beatToX=b=>b*bw;
+  return(
+    <div style={{position:"absolute",top:rulerH+waveformH+y,width:LABEL_W+PARAM_LABEL_W+totalW,height:h,display:"flex",background:"#0c0c10",borderBottom:"1px solid rgba(255,255,255,0.07)",zIndex:6}}>
+      <div onClick={onToggle} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 8px",gap:7,cursor:"pointer"}}>
+        <span style={{fontSize:8,color:isFxSel?fx.color:(focusMode?isFocusExpanded?"#6699cc":"#446":"#555")}}>{focusMode?(isFocusExpanded?"\u25BC":"\u25B6"):(isExp?"\u25BC":"\u25B6")}</span>
+        <div style={{width:10,height:10,borderRadius:"50%",background:hasActive?fx.color:"#252930",boxShadow:hasActive?`0 0 10px ${fx.color}`:"none",transition:"all 0.05s"}}/>
+        <div>
+          <div style={{fontSize:11,color:isFxSel?fx.color:"rgba(255,255,255,0.85)",fontWeight:"bold"}}>{fx.name}</div>
+          <div style={{fontSize:8,color:isFxSel?fx.color+"88":"rgba(255,255,255,0.2)"}}>{fx.type}</div>
+        </div>
+        <div style={{flex:1}}/>
+        <div style={{fontSize:8,color:"rgba(255,255,255,0.18)"}}>{cueCount||0}c</div>
+      </div>
+      <div style={{flex:1,background:"#050508",position:"relative"}}>
+        {isFxSel&&(()=>{const fxL=fxStart*bw-scrollLeft;const fxR=fxEnd*bw-scrollLeft;const clL=Math.max(0,fxL);const clR=Math.min(totalW,fxR);if(clR<=clL)return null;return <div style={{position:"absolute",left:clL,top:0,width:clR-clL,height:"100%",background:fx.color+"18",borderLeft:`1px solid ${fx.color}44`,borderRight:`1px solid ${fx.color}44`,pointerEvents:"none"}}/>})()}
+      </div>
+    </div>
+  );
+});
+
+const GroupRowMemo = React.memo(function GroupRowMemo({gk,isExp,group,fixtureId,cues,onToggle,onDoubleClick,y,h,rulerH,waveformH,LABEL_W,PARAM_LABEL_W,totalW}){
+  return(
+    <div style={{position:"absolute",top:rulerH+waveformH+y,width:LABEL_W+PARAM_LABEL_W+totalW,height:h,display:"flex",background:"#080810",borderBottom:"1px solid rgba(255,255,255,0.04)",zIndex:5}}>
+      <div onClick={onToggle} onDoubleClick={onDoubleClick} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",padding:"0 8px 0 24px",gap:6,cursor:"pointer"}}>
+        <span style={{fontSize:7,color:"rgba(255,255,255,0.2)"}}>{isExp?"\u25BC":"\u25B6"}</span>
+        <div style={{width:12,height:2,borderRadius:1,background:group.color,opacity:0.6}}/>
+        <span style={{fontSize:9,color:group.color,opacity:0.75,letterSpacing:1.5}}>{group.group}</span>
+        <span style={{fontSize:7,color:"rgba(255,255,255,0.15)",marginLeft:"auto"}}>{group.params.length} params</span>
+      </div>
+      <div style={{flex:1,background:"#030306"}}/>
+    </div>
+  );
+});
+
 const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudioMode, audioFileName, audioLevel, beatDetected, detectedBpm, audioVolume, setAudioVolume, audioMuted, setAudioMuted, onFileLoad, bpm, setBpm }) {
   const fileInputRef = useRef(null);
   return (
@@ -3494,6 +3530,7 @@ function LightingTimeline() {
   const beatEventRef = useRef(null);
 
   const timelineRef=useRef(null), animRef=useRef(null), lastTimeRef=useRef(null), stateRef=useRef({}), playheadRef=useRef(0), lastVisualUpdateRef=useRef(0);
+  const scrollTopRef=useRef(0), viewportHRef=useRef(800);
   const cuesRef=useRef(cues); cuesRef.current=cues;
   const rowsRef=useRef([]); // updated in rows useMemo
   const zoomRef=useRef(zoom); zoomRef.current=zoom;
@@ -3520,7 +3557,9 @@ function LightingTimeline() {
   audioEngineRef.current = audioEngine;
 
   const bw=BEAT_WIDTH*zoom;
+  const bwRef=useRef(bw); bwRef.current=bw;
   const beatToX=b=>b*bw;
+  const playheadLineRef=useRef(null);
   const xToBeat=x=>x/bw;
   const snapBeat=useCallback(b=>snapToGrid?Math.round(b*4)/4:b,[snapToGrid]);
 
@@ -3551,8 +3590,12 @@ function LightingTimeline() {
         else if(next>=TOTAL_BEATS) next=0;
         playheadRef.current=next;
         if(clickEnabledRef.current){const beatNow=Math.floor(next);if(beatNow!==lastClickBeatRef.current){lastClickBeatRef.current=beatNow;playClickRef.current(beatNow%4===0);}}
-        // Throttle React re-renders to ~15Hz (every 66ms) — DMX uses refs at full speed
-        if(now-lastVisualUpdateRef.current>=66){
+        // 60fps playhead line via direct DOM (no React re-render)
+        if(playheadLineRef.current){
+          playheadLineRef.current.style.left=(next*bwRef.current-0.5)+'px';
+        }
+        // Throttle React re-renders to ~4Hz (every 250ms) — DMX uses refs at full speed
+        if(now-lastVisualUpdateRef.current>=250){
           lastVisualUpdateRef.current=now;
           setDisplayPlayhead(next);
         }
@@ -3566,7 +3609,7 @@ function LightingTimeline() {
     return ()=>cancelAnimationFrame(animRef.current);
   },[playing]);
 
-  // Pre-index cues by lane for O(1) lookup instead of O(n) filter per lane
+  // Pre-index cues by lane for O(1) lookup, sorted by beat for binary search
   const cueIndex = useMemo(() => {
     const idx = new Map();
     const fxCounts = new Map();
@@ -3576,6 +3619,10 @@ function LightingTimeline() {
       idx.get(laneKey).push(c);
       fxCounts.set(c.fixtureId, (fxCounts.get(c.fixtureId) || 0) + 1);
     });
+    // Sort each lane's cues by beat for binary search in liveValues
+    for(const [key, laneCues] of idx.entries()){
+      if(typeof key === 'string') laneCues.sort((a,b) => a.beat - b.beat);
+    }
     idx._fxCounts = fxCounts;
     return idx;
   }, [cues]);
@@ -3583,13 +3630,17 @@ function LightingTimeline() {
   const liveValues=useMemo(()=>{
     const map={};
     if(!cueIndex) return map;
-    // Use cueIndex for O(lanes) instead of O(allCues) iteration
+    // Binary search per lane (cues sorted by beat) for O(log n) per lane
     for(const [laneKey, laneCues] of cueIndex.entries()){
       if(typeof laneKey !== "string") continue;
       if(mutedLanes.has(laneKey)) continue;
-      for(let i=0;i<laneCues.length;i++){
-        const c=laneCues[i];
-        if(!c.muted&&displayPlayhead>=c.beat&&displayPlayhead<c.beat+c.duration){map[laneKey]=interpolateCue(c,displayPlayhead);break;}
+      let lo=0, hi=laneCues.length-1;
+      while(lo<=hi){
+        const mid=(lo+hi)>>1;
+        const c=laneCues[mid];
+        if(displayPlayhead>=c.beat+c.duration) lo=mid+1;
+        else if(displayPlayhead<c.beat) hi=mid-1;
+        else { if(!c.muted) map[laneKey]=interpolateCue(c,displayPlayhead); break; }
       }
     }
     // Apply paramFloors: use floor as minimum value, or as value when no cue is active
@@ -4759,7 +4810,7 @@ function LightingTimeline() {
 
       <div style={{display:"flex",flex:1,overflow:"hidden",padding:"0 6px 0 6px"}}>
         <div onMouseDown={()=>setRightPanelWide(false)} onTouchStart={()=>setRightPanelWide(false)} style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
-        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>setScrollLeft(e.target.scrollLeft)} style={{flex:1,overflow:"auto",position:"relative",background:"#000",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
+        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>{setScrollLeft(e.target.scrollLeft);scrollTopRef.current=e.target.scrollTop;viewportHRef.current=e.target.clientHeight;}} style={{flex:1,overflow:"auto",position:"relative",background:"#000",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
           <div style={{width:LABEL_W+PARAM_LABEL_W+totalW,minHeight:(RULER_H+(waveformPeaks?40:0))+totalH}}>
             <div style={{position:"sticky",top:0,zIndex:20,width:LABEL_W+PARAM_LABEL_W+totalW,background:"#000",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
               <div style={{height:RULER_H,display:"flex"}}>
@@ -4792,7 +4843,7 @@ function LightingTimeline() {
                       {i%16===0?`\u266B${Math.floor(i/4)+1}`:`${Math.floor(i/4)+1}`}
                     </div>
                   ))}
-                  <div style={{position:"absolute",top:0,left:beatToX(displayPlayhead)-0.5,width:1,height:(RULER_H+(waveformPeaks?40:0))+totalH,background:"#ff3333",zIndex:30,pointerEvents:"none",boxShadow:"0 0 5px #ff333388"}}>
+                  <div ref={playheadLineRef} style={{position:"absolute",top:0,left:beatToX(displayPlayhead)-0.5,width:1,height:(RULER_H+(waveformPeaks?40:0))+totalH,background:"#ff3333",zIndex:30,pointerEvents:"none",boxShadow:"0 0 5px #ff333388",willChange:"transform"}}>
                     <div style={{width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"7px solid #ff3333",transform:"translateX(-4.5px)"}}/>
                   </div>
                 </div>
@@ -4805,44 +4856,18 @@ function LightingTimeline() {
               </div>}
             </div>
 
-            {rows.map((row,ri)=>{
+            {(()=>{const headerH=RULER_H+(waveformPeaks?40:0);const OVERSCAN=300;const visTop=scrollTopRef.current-OVERSCAN-headerH;const visBot=scrollTopRef.current+viewportHRef.current+OVERSCAN-headerH;return rows.filter(r=>(r.y+r.h)>=visTop&&r.y<=visBot);})().map((row,ri)=>{
               if(row.type==="fixture"){
                 const fx=fixtures.find(f=>f.id===row.fixtureId);
                 const isExp=expandedFixtures.has(fx.id);
                 const hasActive=Object.entries(liveValues).some(([k,v])=>k.startsWith(fx.id+"-")&&v>0);
                 const isFxSel=fxSelectedFixtures.has(fx.id);
-                return(
-                  <div key={`fx-${fx.id}`} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#0c0c10",borderBottom:"1px solid rgba(255,255,255,0.07)",zIndex:6}}>
-                    <div onClick={()=>{if(focusMode){setFocusExpandedFx(prev=>{const s=new Set(prev);s.has(fx.id)?s.delete(fx.id):s.add(fx.id);return s;});}else{toggleFixture(fx.id);}}} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 8px",gap:7,cursor:"pointer"}}>
-                      <span style={{fontSize:8,color:isFxSel?fx.color:(focusMode?focusExpandedFx.has(fx.id)?"#6699cc":"#446":"#555")}}>{focusMode?(focusExpandedFx.has(fx.id)?"\u25BC":"\u25B6"):(isExp?"\u25BC":"\u25B6")}</span>
-                      <div style={{width:10,height:10,borderRadius:"50%",background:hasActive?fx.color:"#252930",boxShadow:hasActive?`0 0 10px ${fx.color}`:"none",transition:"all 0.05s"}}/>
-                      <div>
-                        <div style={{fontSize:11,color:isFxSel?fx.color:"rgba(255,255,255,0.85)",fontWeight:"bold"}}>{fx.name}</div>
-                        <div style={{fontSize:8,color:isFxSel?fx.color+"88":"rgba(255,255,255,0.2)"}}>{fx.type}</div>
-                      </div>
-                      <div style={{flex:1}}/>
-                      <div style={{fontSize:8,color:"rgba(255,255,255,0.18)"}}>{(cueIndex&&cueIndex._fxCounts&&cueIndex._fxCounts.get(fx.id))||0}c</div>
-                    </div>
-                    <div style={{flex:1,background:"#050508",position:"relative"}}>
-                      {isFxSel&&(()=>{const fxL=fxStart*bw-scrollLeft;const fxR=fxEnd*bw-scrollLeft;const clL=Math.max(0,fxL);const clR=Math.min(totalW,fxR);if(clR<=clL)return null;return <div style={{position:"absolute",left:clL,top:0,width:clR-clL,height:"100%",background:fx.color+"18",borderLeft:`1px solid ${fx.color}44`,borderRight:`1px solid ${fx.color}44`,pointerEvents:"none"}}/>})()}
-                    </div>
-                  </div>
-                );
+                return <FixtureRowMemo key={`fx-${fx.id}`} fx={fx} isExp={isExp} hasActive={hasActive} isFxSel={isFxSel} cueCount={(cueIndex&&cueIndex._fxCounts&&cueIndex._fxCounts.get(fx.id))||0} focusMode={focusMode} isFocusExpanded={focusExpandedFx.has(fx.id)} onToggle={()=>{if(focusMode){setFocusExpandedFx(prev=>{const s=new Set(prev);s.has(fx.id)?s.delete(fx.id):s.add(fx.id);return s;});}else{toggleFixture(fx.id);}}} bw={bw} fxStart={fxStart} fxEnd={fxEnd} scrollLeft={scrollLeft} totalW={totalW} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W}/>;
               }
               if(row.type==="group"){
                 const gk=`${row.fixtureId}-${row.groupId}`;
                 const isExp=expandedGroups.has(gk);
-                return(
-                  <div key={gk} style={{position:"absolute",top:(RULER_H+(waveformPeaks?40:0))+row.y,width:LABEL_W+PARAM_LABEL_W+totalW,height:row.h,display:"flex",background:"#080810",borderBottom:"1px solid rgba(255,255,255,0.04)",zIndex:5}}>
-                    <div onClick={()=>toggleGroup(gk)} onDoubleClick={e=>{e.stopPropagation();const paramIds=new Set(row.group.params.map(p=>p.id));const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&paramIds.has(c.param)).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(row.group.color);}}} style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",padding:"0 8px 0 24px",gap:6,cursor:"pointer"}}>
-                      <span style={{fontSize:7,color:"rgba(255,255,255,0.2)"}}>{isExp?"\u25BC":"\u25B6"}</span>
-                      <div style={{width:12,height:2,borderRadius:1,background:row.group.color,opacity:0.6}}/>
-                      <span style={{fontSize:9,color:row.group.color,opacity:0.75,letterSpacing:1.5}}>{row.group.group}</span>
-                      <span style={{fontSize:7,color:"rgba(255,255,255,0.15)",marginLeft:"auto"}}>{row.group.params.length} params</span>
-                    </div>
-                    <div style={{flex:1,background:"#030306"}}/>
-                  </div>
-                );
+                return <GroupRowMemo key={gk} gk={gk} isExp={isExp} group={row.group} fixtureId={row.fixtureId} cues={cues} onToggle={()=>toggleGroup(gk)} onDoubleClick={e=>{e.stopPropagation();const paramIds=new Set(row.group.params.map(p=>p.id));const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&paramIds.has(c.param)).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(row.group.color);}}} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W} totalW={totalW}/>;
               }
               if(row.type==="param"){
                 const param=row.param;
