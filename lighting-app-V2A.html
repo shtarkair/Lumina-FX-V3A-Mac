@@ -3366,7 +3366,7 @@ function LightingTimeline() {
     setUpdateError('');
     setUpdateInfo(null);
     try {
-      const res = await fetch('/api/update-check', { signal: AbortSignal.timeout(20000) });
+      const res = await fetch('/api/update-check', { signal: (()=>{const c=new AbortController();setTimeout(()=>c.abort(),20000);return c.signal;})() });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Check failed');
       setUpdateInfo(data);
@@ -3816,7 +3816,7 @@ function LightingTimeline() {
                   return;
                 }
                 try {
-                  const r = await fetch('/api/update-check', { signal: AbortSignal.timeout(2000) });
+                  const r = await fetch('/api/update-check', { signal: (()=>{const c=new AbortController();setTimeout(()=>c.abort(),2000);return c.signal;})() });
                   if (r.ok) {
                     clearInterval(pollReconnect);
                     setUpdateProgress('Server is back! Reloading...');
