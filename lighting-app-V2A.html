@@ -2124,7 +2124,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
     // Register for server-side MIDI (WebSocket)
     window.__serverMidiHandler = processMidiBytes;
     // Register for browser WebMIDI if available
-    if (midiAccessRef.current && !serverMidiRef.current) {
+    if (midiAccessRef.current) {
       const access = midiAccessRef.current;
       const onMessage = e => processMidiBytes(e.data);
       access.inputs.forEach(input => { input.onmidimessage = onMessage; });
