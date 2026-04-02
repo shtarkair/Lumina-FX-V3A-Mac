@@ -14,6 +14,68 @@ const SACN_PORT = 5568;
 const MAX_UNIVERSES = 64;
 const filePath = path.join(__dirname, 'lighting-app.html');
 
+// --- Server-side MIDI (replaces browser WebMIDI for WKWebView compatibility) ---
+let midiInput = null;
+let midiInputPort = -1;
+let midiAvailablePorts = [];
+try {
+  const midi = require('@julusian/midi');
+  const midiIn = new midi.Input();
+
+  function scanMidiPorts() {
+    const count = midiIn.getPortCount();
+    midiAvailablePorts = [];
+    for (let i = 0; i < count; i++) {
+      midiAvailablePorts.push({ index: i, name: midiIn.getPortName(i) });
+    }
+    return midiAvailablePorts;
+  }
+
+  function openMidiPort(portIndex) {
+    try {
+      if (midiInput) { midiInput.closePort(); midiInput = null; }
+      midiInput = new midi.Input();
+      midiInput.openPort(portIndex);
+      midiInputPort = portIndex;
+      const portName = midiInput.getPortName(portIndex);
+      console.log(`[MIDI] Opened: ${portName} (port ${portIndex})`);
+
+      midiInput.on('message', (deltaTime, message) => {
+        // Forward raw MIDI bytes to all WebSocket clients
+        const msg = JSON.stringify({ type: 'midi_message', data: Array.from(message) });
+        if (typeof wss !== 'undefined') {
+          wss.clients.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+          });
+        }
+      });
+      return { ok: true, port: portIndex, name: portName };
+    } catch (e) {
+      console.error('[MIDI] Open error:', e.message);
+      return { ok: false, error: e.message };
+    }
+  }
+
+  function closeMidiPort() {
+    if (midiInput) { midiInput.closePort(); midiInput = null; midiInputPort = -1; }
+    console.log('[MIDI] Port closed');
+  }
+
+  // Auto-scan on startup
+  const ports = scanMidiPorts();
+  if (ports.length > 0) {
+    console.log(`[MIDI] Found ${ports.length} device(s):`, ports.map(p => p.name).join(', '));
+  } else {
+    console.log('[MIDI] No devices found');
+  }
+
+  // Export for use in WebSocket handler
+  global._midi = { scanMidiPorts, openMidiPort, closeMidiPort };
+} catch (e) {
+  console.log('[MIDI] @julusian/midi not available:', e.message);
+  global._midi = null;
+}
+
 // --- Software Update ---
 const UPDATE_FILES = [
   'lighting-app.html',
@@ -1542,6 +1604,24 @@ wss.on('connection', (ws) => {
         console.log('[NETWORK]', `IN: ${networkConfig.inputIP} | OUT: ${networkConfig.outputIP} → broadcast: ${networkConfig.outputBroadcast}`);
         // Send updated config back to client
         ws.send(JSON.stringify({ type: 'nic_list', interfaces: getNetworkInterfaces(), current: networkConfig }));
+      }
+
+      // --- Server-side MIDI control ---
+      if (msg.type === 'midi_scan') {
+        const ports = global._midi ? global._midi.scanMidiPorts() : [];
+        ws.send(JSON.stringify({ type: 'midi_ports', ports, activePort: midiInputPort }));
+        return;
+      }
+      if (msg.type === 'midi_open') {
+        if (!global._midi) { ws.send(JSON.stringify({ type: 'midi_status', ok: false, error: 'MIDI not available' })); return; }
+        const result = global._midi.openMidiPort(msg.port);
+        ws.send(JSON.stringify({ type: 'midi_status', ...result }));
+        return;
+      }
+      if (msg.type === 'midi_close') {
+        if (global._midi) global._midi.closeMidiPort();
+        ws.send(JSON.stringify({ type: 'midi_status', ok: true, connected: false }));
+        return;
       }
 
       // --- Output control ---

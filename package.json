@@ -6,6 +6,7 @@
     "build": "./build.sh"
   },
   "dependencies": {
+    "@julusian/midi": "^3.6.1",
     "adm-zip": "^0.5.16",
     "osc": "^2.4.5",
     "ws": "^8.18.0"

@@ -2009,9 +2009,11 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
 
   // Setup MIDI message handlers when connected
   useEffect(() => {
-    if (!midiConnected || !midiAccessRef.current) return;
-    const access = midiAccessRef.current;
-    const onMessage = e => {
+    if (!midiConnected) return;
+    // Process raw MIDI bytes (works for both browser WebMIDI and server-side)
+    const processMidiBytes = (data) => {
+      if (!data || data.length < 1) return;
+      const e = { data };
       if (!e.data || e.data.length < 1) return;
       const status = e.data[0];
       if (status === 0xF8 || status === 0xFE) return;
@@ -2119,10 +2121,18 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
         if (mapped && handlePadReleaseRef.current) handlePadReleaseRef.current(mapped);
       }
     };
-    access.inputs.forEach(input => { input.onmidimessage = onMessage; });
-    access.onstatechange = () => {
+    // Register for server-side MIDI (WebSocket)
+    window.__serverMidiHandler = processMidiBytes;
+    // Register for browser WebMIDI if available
+    if (midiAccessRef.current && !serverMidiRef.current) {
+      const access = midiAccessRef.current;
+      const onMessage = e => processMidiBytes(e.data);
       access.inputs.forEach(input => { input.onmidimessage = onMessage; });
-    };
+      access.onstatechange = () => {
+        access.inputs.forEach(input => { input.onmidimessage = onMessage; });
+      };
+    }
+    return () => { window.__serverMidiHandler = null; };
   }, [midiConnected]);
 
   useEffect(() => {
@@ -2771,10 +2781,16 @@ function LightingTimeline() {
   useEffect(()=>{localStorage.setItem("lumina-midi-live",midiLiveMode?"true":"false");},[midiLiveMode]);
   useEffect(()=>{localStorage.setItem("lumina-midi-relative",midiRelativeMode?"true":"false");midiRelativeRef.current=midiRelativeMode;window.__midiLearnState.relative=midiRelativeMode;},[midiRelativeMode]);
   const midiAccessRef = useRef(null);
+  const serverMidiRef = useRef(false); // true = using server-side MIDI
   const toggleMidi = useCallback(async () => {
     if (midiConnected) {
-      // Disconnect: remove listeners and close
-      if (midiAccessRef.current) {
+      // Disconnect
+      if (serverMidiRef.current) {
+        // Close server-side MIDI
+        const ws = outputWsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'midi_close'}));
+        serverMidiRef.current = false;
+      } else if (midiAccessRef.current) {
         midiAccessRef.current.inputs.forEach(input => { input.onmidimessage = null; });
         midiAccessRef.current = null;
       }
@@ -2782,12 +2798,25 @@ function LightingTimeline() {
       setMidiLearn(null);
       return;
     }
-    if (!navigator.requestMIDIAccess) { alert("Web MIDI not supported in this browser. Please use Google Chrome."); return; }
-    try {
-      const access = await navigator.requestMIDIAccess({sysex: false});
-      midiAccessRef.current = access;
-      setMidiConnected(true);
-    } catch(err) { alert("MIDI access denied: " + err.message); }
+    // Try browser WebMIDI first
+    if (navigator.requestMIDIAccess) {
+      try {
+        const access = await navigator.requestMIDIAccess({sysex: false});
+        midiAccessRef.current = access;
+        serverMidiRef.current = false;
+        setMidiConnected(true);
+        return;
+      } catch(err) { /* fall through to server MIDI */ }
+    }
+    // Fall back to server-side MIDI
+    const ws = outputWsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type:'midi_scan'}));
+      // Response handled in WS message listener — will auto-open first port
+      serverMidiRef.current = true;
+    } else {
+      alert("MIDI not available: no browser support and no server connection.");
+    }
   }, [midiConnected]);
   const [fixtures, setFixtures] = useState(() => { try { return JSON.parse(localStorage.getItem("lumina-fixtures")) || defaultFixtures(); } catch(e) { return defaultFixtures(); } });
   useEffect(()=>{
@@ -3778,6 +3807,26 @@ function LightingTimeline() {
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
+            // Server-side MIDI messages
+            if (msg.type === 'midi_ports' && msg.ports) {
+              if (msg.ports.length > 0 && msg.activePort < 0) {
+                // Auto-open first port
+                ws.send(JSON.stringify({type:'midi_open', port: 0}));
+              } else if (msg.ports.length === 0) {
+                alert('No MIDI devices found on server.');
+              }
+            }
+            if (msg.type === 'midi_status') {
+              if (msg.ok && msg.name) {
+                setMidiConnected(true);
+                console.log('[MIDI] Server connected:', msg.name);
+              } else if (msg.error) {
+                console.warn('[MIDI] Server error:', msg.error);
+              }
+            }
+            if (msg.type === 'midi_message' && msg.data && window.__serverMidiHandler) {
+              window.__serverMidiHandler(msg.data);
+            }
             if (msg.type === 'dmx_input' && msg.universe && msg.data) {
               inputMonitorRef.current[msg.universe] = msg.data;
             }
