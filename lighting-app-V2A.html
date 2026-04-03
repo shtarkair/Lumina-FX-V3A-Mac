@@ -270,6 +270,8 @@ function buildDMXFrames(liveValues, dmxPatch) {
     const paramId = key.substring(idx + 1);
     const patch = dmxPatch[fxId];
     if (!patch) continue;
+    // PERF FIX 4: Skip fixtures with no active cues or floor values (DMX overhead reduction)
+    if (val === undefined || val === 0) continue;
     const profile = DMX_PROFILES[patch.profile];
     if (!profile || !profile.map[paramId]) continue;
     let uni, addr, bits;
@@ -2192,8 +2194,30 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
     return m;
   }, [padCueIndex, playhead, activeParam, fixtures]);
 
-  const hasCueForParam = fxId => cues.some(c => c.fixtureId===fxId && c.param===activeParam);
-  const isActiveCue = fxId => cues.some(c => c.fixtureId===fxId && c.param===activeParam && playhead>=c.beat && playhead<c.beat+c.duration);
+  // PERF FIX 3: Pre-calculate which fixtures have active cues in Sets for O(1) lookup
+  // Avoids O(n*m) scan (n fixtures x m cues per fixture) on every playhead tick
+  const activeCuesSet = useMemo(() => {
+    const set = new Set();
+    for (const c of cues) {
+      if (c.param === activeParam && playhead >= c.beat && playhead < c.beat + c.duration) {
+        set.add(c.fixtureId);
+      }
+    }
+    return set;
+  }, [cues, activeParam, playhead]);
+
+  const hasCueForParamSet = useMemo(() => {
+    const set = new Set();
+    for (const c of cues) {
+      if (c.param === activeParam) {
+        set.add(c.fixtureId);
+      }
+    }
+    return set;
+  }, [cues, activeParam]);
+
+  const hasCueForParam = fxId => hasCueForParamSet.has(fxId);
+  const isActiveCue = fxId => activeCuesSet.has(fxId);
 
   const handlePadPress = (fxId, velocity) => {
     setHeldPads(prev => new Set([...prev, fxId]));
@@ -3732,6 +3756,29 @@ function LightingTimeline() {
     return idx;
   }, [cues]);
 
+  // PERF FIX 1: Pre-filter ghost cues by fixture/param to avoid recreating arrays on every render
+  // This prevents busting React.memo on ParamRowMemo which depends on these props
+  const filteredGhostCuesByLane = useMemo(() => {
+    const byLane = {};
+    // Pre-organize cues by lane for O(1) lookup when rendering ParamRowMemo
+    for (const gc of fxGhostCues) {
+      const key = `${gc.fixtureId}-${gc.param}`;
+      if (!byLane[key]) byLane[key] = { fx: [], time: [], fan: [] };
+      byLane[key].fx.push(gc);
+    }
+    for (const gc of timeGhostCues) {
+      const key = `${gc.fixtureId}-${gc.param}`;
+      if (!byLane[key]) byLane[key] = { fx: [], time: [], fan: [] };
+      byLane[key].time.push(gc);
+    }
+    for (const gc of fanGhostCues) {
+      const key = `${gc.fixtureId}-${gc.param}`;
+      if (!byLane[key]) byLane[key] = { fx: [], time: [], fan: [] };
+      byLane[key].fan.push(gc);
+    }
+    return byLane;
+  }, [fxGhostCues, timeGhostCues, fanGhostCues]);
+
   const liveValues=useMemo(()=>{
     const map={};
     if(!cueIndex) return map;
@@ -3739,6 +3786,8 @@ function LightingTimeline() {
     for(const [laneKey, laneCues] of cueIndex.entries()){
       if(typeof laneKey !== "string") continue;
       if(mutedLanes.has(laneKey)) continue;
+      // PERF FIX 2: Early-out for empty fixtures - skip binary search on empty lanes (O(1) check)
+      if(laneCues.length === 0) continue;
       let lo=0, hi=laneCues.length-1;
       while(lo<=hi){
         const mid=(lo+hi)>>1;
@@ -5012,7 +5061,9 @@ function LightingTimeline() {
                 const liveVal=liveValues[laneKey];
                 const floorVal=paramFloors[laneKey]||0;
                 const hasFloor=floorVal>0;
-                return <ParamRowMemo key={laneKey} param={param} laneKey={laneKey} fixtureId={row.fixtureId} paramId={row.paramId} isMuted={isMuted} laneCues={laneCues} liveVal={liveVal} floorVal={floorVal} hasFloor={hasFloor} overrideVal={paramOverrides[laneKey]} lmeAssigned={!!lmeAssigned[laneKey]} ri={ri} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} bw={bw} loopEnabled={loopEnabled} loopStart={loopStart} loopEnd={loopEnd} rightTab={rightTab} fxStart={fxStart} fxEnd={fxEnd} fxGhostCues={fxGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} timeGhostCues={timeGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} fanGhostCues={fanGhostCues.filter(gc=>gc.fixtureId===row.fixtureId&&gc.param===row.paramId)} displayPlayhead={displayPlayhead} selectedCue={selectedCue} selectedCues={selectedCues} splitMode={splitMode} tool={tool} handleCueMouseDown={handleCueMouseDown} handleCueTouchStart={handleCueTouchStart} onMuteToggle={()=>setMutedLanes(prev=>{const n=new Set(prev);if(n.has(laneKey))n.delete(laneKey);else n.add(laneKey);return n;})} onFloorClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'param_floor',laneKey,paramMin:param.min,paramMax:param.max,paramLabel:param.label,paramColor:param.color,paramUnit:param.unit||'',value:String(floorVal),rect:{top:r.bottom+2,left:r.left},dirty:false});}} onLmeToggle={e=>{e.stopPropagation();setLmeAssigned(prev=>{const n={...prev};if(n[laneKey])delete n[laneKey];else n[laneKey]={pMin:param.min,pMax:param.max,label:param.label};return n;});}} onValueClick={e=>{e.stopPropagation();if(isMuted)return;const r=e.currentTarget.getBoundingClientRect();const curVal=liveVal!==undefined?Math.round(liveVal):paramOverrides[laneKey]??Math.round((param.min+param.max)/2);setKeypadState({field:'param_value',laneKey,fixtureId:row.fixtureId,paramId:row.paramId,paramMin:param.min,paramMax:param.max,paramColor:param.color,paramLabel:param.label,paramUnit:param.unit||'',value:String(curVal),dirty:false,rect:{top:r.top,left:r.right+4}});}} onLaneSelect={e=>{e.stopPropagation();const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&c.param===row.paramId).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(param.color);}}} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W} totalW={totalW} TOTAL_BEATS={TOTAL_BEATS}/>;
+                // PERF FIX 1: Use memoized pre-filtered ghost cues to avoid creating new arrays on every render
+                const ghostCuesForLane = filteredGhostCuesByLane[laneKey] || { fx: [], time: [], fan: [] };
+                return <ParamRowMemo key={laneKey} param={param} laneKey={laneKey} fixtureId={row.fixtureId} paramId={row.paramId} isMuted={isMuted} laneCues={laneCues} liveVal={liveVal} floorVal={floorVal} hasFloor={hasFloor} overrideVal={paramOverrides[laneKey]} lmeAssigned={!!lmeAssigned[laneKey]} ri={ri} y={row.y} h={row.h} rulerH={RULER_H} waveformH={waveformPeaks?40:0} bw={bw} loopEnabled={loopEnabled} loopStart={loopStart} loopEnd={loopEnd} rightTab={rightTab} fxStart={fxStart} fxEnd={fxEnd} fxGhostCues={ghostCuesForLane.fx} timeGhostCues={ghostCuesForLane.time} fanGhostCues={ghostCuesForLane.fan} displayPlayhead={displayPlayhead} selectedCue={selectedCue} selectedCues={selectedCues} splitMode={splitMode} tool={tool} handleCueMouseDown={handleCueMouseDown} handleCueTouchStart={handleCueTouchStart} onMuteToggle={()=>setMutedLanes(prev=>{const n=new Set(prev);if(n.has(laneKey))n.delete(laneKey);else n.add(laneKey);return n;})} onFloorClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'param_floor',laneKey,paramMin:param.min,paramMax:param.max,paramLabel:param.label,paramColor:param.color,paramUnit:param.unit||'',value:String(floorVal),rect:{top:r.bottom+2,left:r.left},dirty:false});}} onLmeToggle={e=>{e.stopPropagation();setLmeAssigned(prev=>{const n={...prev};if(n[laneKey])delete n[laneKey];else n[laneKey]={pMin:param.min,pMax:param.max,label:param.label};return n;});}} onValueClick={e=>{e.stopPropagation();if(isMuted)return;const r=e.currentTarget.getBoundingClientRect();const curVal=liveVal!==undefined?Math.round(liveVal):paramOverrides[laneKey]??Math.round((param.min+param.max)/2);setKeypadState({field:'param_value',laneKey,fixtureId:row.fixtureId,paramId:row.paramId,paramMin:param.min,paramMax:param.max,paramColor:param.color,paramLabel:param.label,paramUnit:param.unit||'',value:String(curVal),dirty:false,rect:{top:r.top,left:r.right+4}});}} onLaneSelect={e=>{e.stopPropagation();const ids=cues.filter(c=>c.fixtureId===row.fixtureId&&c.param===row.paramId).map(c=>c.id);if(ids.length>0){setSelectedCues(new Set(ids));setSelectedCue(null);flashScreen(param.color);}}} LABEL_W={LABEL_W} PARAM_LABEL_W={PARAM_LABEL_W} totalW={totalW} TOTAL_BEATS={TOTAL_BEATS}/>;
               }
               return null;
             })}
