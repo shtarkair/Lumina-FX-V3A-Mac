@@ -103,7 +103,7 @@ const GITHUB_TOKEN = (() => {
   // Try local file first (for dev), then fall back to embedded token
   const tokenFile = path.join(__dirname, '.github-token');
   try { const t = fs.readFileSync(tokenFile, 'utf8').trim(); if (t) return t; } catch(e) {}
-  return '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';
+  return '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';
 })();
 if (GITHUB_TOKEN) console.log('[UPDATE] GitHub token loaded for private repo access');
 
