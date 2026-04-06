@@ -108,17 +108,22 @@ const GITHUB_TOKEN = (() => {
 if (GITHUB_TOKEN) console.log('[UPDATE] GitHub token loaded for private repo access');
 
 // Helper: download a file from URL using Node.js built-in https
-function httpsGet(url) {
+function httpsGet(url, useAuth = true) {
   return new Promise((resolve, reject) => {
     const https = require('https');
     const get = (u) => {
       const headers = { 'User-Agent': 'Lumina-FX' };
-      if (GITHUB_TOKEN && u.includes('github')) {
+      if (useAuth && GITHUB_TOKEN && u.includes('github')) {
         headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
       }
       https.get(u, { headers }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return get(res.headers.location); // follow redirects
+          return get(res.headers.location);
+        }
+        // If auth failed, retry without token
+        if (res.statusCode === 401 && useAuth && GITHUB_TOKEN) {
+          console.log('[UPDATE] Token auth failed, retrying without auth...');
+          return httpsGet(url, false).then(resolve).catch(reject);
         }
         if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
         const chunks = [];
