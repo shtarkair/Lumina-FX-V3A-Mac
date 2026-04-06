@@ -4,3 +4,5 @@ Lumina FX.app/
 *.dmg
 .build-cache/
 .dmg-tmp/
+.github-token
+.env

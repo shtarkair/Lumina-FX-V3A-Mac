@@ -98,12 +98,25 @@ function getLocalVersion() {
   catch(e) { return { tag: 'v0.0.0', date: '' }; }
 }
 
+// --- GitHub Token for private repo updates ---
+const GITHUB_TOKEN = (() => {
+  // Try local file first (for dev), then fall back to embedded token
+  const tokenFile = path.join(__dirname, '.github-token');
+  try { const t = fs.readFileSync(tokenFile, 'utf8').trim(); if (t) return t; } catch(e) {}
+  return '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';
+})();
+if (GITHUB_TOKEN) console.log('[UPDATE] GitHub token loaded for private repo access');
+
 // Helper: download a file from URL using Node.js built-in https
 function httpsGet(url) {
   return new Promise((resolve, reject) => {
     const https = require('https');
     const get = (u) => {
-      https.get(u, { headers: { 'User-Agent': 'Lumina-FX' } }, (res) => {
+      const headers = { 'User-Agent': 'Lumina-FX' };
+      if (GITHUB_TOKEN && u.includes('github')) {
+        headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+      }
+      https.get(u, { headers }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return get(res.headers.location); // follow redirects
         }
