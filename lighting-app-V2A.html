@@ -8588,7 +8588,7 @@ function LightingTimeline() {
 
       {midiSettingsOpen && (
         <div onMouseDown={e=>e.stopPropagation()} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setMidiSettingsOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#0e1018",border:"1px solid #aa44ff44",borderRadius:8,width:340,boxShadow:"0 8px 40px rgba(0,0,0,0.8)",display:"flex",flexDirection:"column",padding:16,gap:8}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#0e1018",border:"1px solid #aa44ff44",borderRadius:8,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.8)",display:"flex",flexDirection:"column",padding:16,gap:8}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
               <span style={{fontSize:14,fontWeight:"bold",color:"#cc66ff",letterSpacing:2}}>{"\u266B"} MIDI SETTINGS</span>
               <button onClick={()=>setMidiSettingsOpen(false)} style={{background:"none",border:"none",color:"#ff5544",fontSize:18,cursor:"pointer",fontWeight:"bold"}}>✕</button>
