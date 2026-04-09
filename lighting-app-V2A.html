@@ -439,11 +439,11 @@ function buildAutoMapFromProfile(profile, fixtures) {
     });
   }
 
-  // Map transport buttons to actions
+  // Map transport buttons to actions (CC messages need "cc:" prefix)
   if (profile.transport) {
-    if (profile.transport.play) map[profile.transport.play] = "act:play";
-    if (profile.transport.stop) map[profile.transport.stop] = "act:stop";
-    if (profile.transport.rec) map[profile.transport.rec] = "act:rec";
+    if (profile.transport.play) map["cc:" + profile.transport.play] = "act:play";
+    if (profile.transport.stop) map["cc:" + profile.transport.stop] = "act:stop";
+    if (profile.transport.rec) map["cc:" + profile.transport.rec] = "act:rec";
   }
 
   // Map faders to black key actions or param control
@@ -2933,7 +2933,7 @@ const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudi
 function LightingTimeline() {
   // MIDI state (lifted to parent so SET tab can access)
   const [midiConnected, setMidiConnected] = useState(false);
-  const [midiAutoConnect, setMidiAutoConnect] = useState(()=>{ try { return localStorage.getItem("lumina-midi-autoconnect")==="true"; } catch(e){ return false; } });
+  const [midiAutoConnect, setMidiAutoConnect] = useState(()=>{ try { const v = localStorage.getItem("lumina-midi-autoconnect"); return v === null ? true : v === "true"; } catch(e){ return true; } });
   const [midiAutoMap, setMidiAutoMap] = useState(()=>{ try { return localStorage.getItem("lumina-midi-automap")==="true"; } catch(e){ return false; } });
   useEffect(()=>{ localStorage.setItem("lumina-midi-automap",midiAutoMap?"true":"false"); },[midiAutoMap]);
   const midiAutoMapFixtureCount = useRef(null);
