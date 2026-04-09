@@ -2856,6 +2856,19 @@ const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,p
             </div>
           );
         })}
+        {laneCues.filter(c=>c.delay&&c.delayTime>0).map(cue=>{
+          const repeats=cue.delayRepeats||3;
+          const decay=cue.delayDecay||0.6;
+          const echoes=[];
+          for(let r=1;r<=repeats;r++){
+            const echoStart=cue.beat+cue.delayTime*r;
+            const opacity=Math.pow(decay,r);
+            const echoW=Math.max(4,beatToX(cue.duration)-2);
+            const echoH=h-4;
+            echoes.push(<div key={`dly-${cue.id}-${r}`} style={{position:"absolute",left:beatToX(echoStart)+1,width:echoW,top:2,height:echoH,background:`rgba(136,68,204,${0.08*opacity})`,border:`1px dashed rgba(136,68,204,${0.3*opacity})`,borderRadius:3,pointerEvents:"none",zIndex:1,overflow:"hidden"}}><CurvePath cue={{...cue,beat:echoStart}} w={echoW} h={echoH} color="#8844cc" isActive={false}/><div style={{position:"absolute",bottom:1,right:3,fontSize:6,color:`rgba(136,68,204,${opacity})`,pointerEvents:"none"}}>{Math.round(opacity*100)}%</div></div>);
+          }
+          return echoes;
+        })}
         {rightTab==="fx"&&fxGhostCues.map((gc,gi)=>{
           const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
           return <div key={"ghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#4488ff06",border:"1px dashed #4488ff18",borderRadius:3,pointerEvents:"none",zIndex:2}}><CurvePath cue={gc} w={gcW} h={gcH} color="#4488ff" isActive={true}/></div>;
@@ -3825,6 +3838,8 @@ function LightingTimeline() {
 
   const timelineRef=useRef(null), animRef=useRef(null), lastTimeRef=useRef(null), stateRef=useRef({}), playheadRef=useRef(0), lastVisualUpdateRef=useRef(0);
   const scrollTopRef=useRef(0), viewportHRef=useRef(800);
+  const [scrollTopState,setScrollTopState]=useState(0);
+  const scrollTopRafRef=useRef(null);
   const cuesRef=useRef(cues); cuesRef.current=cues;
   const fxStartRef=useRef(fxStart); fxStartRef.current=fxStart;
   const fxEndRef=useRef(fxEnd); fxEndRef.current=fxEnd;
@@ -3965,6 +3980,29 @@ function LightingTimeline() {
         if(displayPlayhead>=c.beat+c.duration) lo=mid+1;
         else if(displayPlayhead<c.beat) hi=mid-1;
         else { if(!c.muted) map[laneKey]=interpolateCue(c,displayPlayhead); break; }
+      }
+      // Delay echoes: check all cues with delay for echo contributions
+      for(let i=0; i<laneCues.length; i++){
+        const c=laneCues[i];
+        if(!c.delay || c.muted || !c.delayTime || c.delayTime<=0) continue;
+        const repeats=c.delayRepeats||3;
+        const decay=c.delayDecay||0.6;
+        const dTime=c.delayTime;
+        const param=getParam(c.param);
+        const pMin=param?param.min:0;
+        for(let r=1; r<=repeats; r++){
+          const echoStart=c.beat+dTime*r;
+          const echoEnd=echoStart+c.duration;
+          if(displayPlayhead>=echoStart && displayPlayhead<echoEnd){
+            const echoVal=interpolateCue({...c, beat:echoStart}, displayPlayhead);
+            const scaledVal=pMin+(echoVal-pMin)*Math.pow(decay,r);
+            if(map[laneKey]!==undefined){
+              map[laneKey]=Math.max(map[laneKey],scaledVal);
+            } else {
+              map[laneKey]=scaledVal;
+            }
+          }
+        }
       }
     }
     // Apply paramFloors: use floor as minimum value, or as value when no cue is active
@@ -5209,11 +5247,11 @@ function LightingTimeline() {
 
       <div style={{display:"flex",flex:1,overflow:"hidden",padding:"0 6px 0 6px"}}>
         <div onMouseDown={()=>setRightPanelWide(false)} onTouchStart={()=>setRightPanelWide(false)} style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
-        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>{setScrollLeft(e.target.scrollLeft);scrollTopRef.current=e.target.scrollTop;viewportHRef.current=e.target.clientHeight;}} style={{flex:1,overflow:"auto",position:"relative",background:"#000",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
+        <div ref={timelineRef} onMouseDown={handleGridMouseDown} onTouchStart={handleGridTouchStart} onScroll={e=>{setScrollLeft(e.target.scrollLeft);scrollTopRef.current=e.target.scrollTop;viewportHRef.current=e.target.clientHeight;if(!scrollTopRafRef.current){scrollTopRafRef.current=requestAnimationFrame(()=>{setScrollTopState(scrollTopRef.current);scrollTopRafRef.current=null;});}}} style={{flex:1,overflow:"auto",position:"relative",background:"#000",cursor:splitMode?"url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" viewBox=\"0 0 32 32\"><text y=\"26\" font-size=\"28\" fill=\"%23ff8844\">✂</text></svg>') 16 16, crosshair":copyMode?(copiedCues?"copy":"cell"):tool==="draw"?"crosshair":tool==="erase"?"not-allowed":"default"}}>
           <div style={{width:LABEL_W+PARAM_LABEL_W+totalW,minHeight:(RULER_H+(waveformPeaks?40:0))+totalH}}>
             <div style={{position:"sticky",top:0,zIndex:20,width:LABEL_W+PARAM_LABEL_W+totalW,background:"#000",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
               <div style={{height:RULER_H,display:"flex"}}>
-                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:8,color:"rgba(255,255,255,0.2)",letterSpacing:2}}><button onClick={()=>{const allExpanded=fixtures.every(fx=>expandedFixtures.has(fx.id));if(allExpanded){setExpandedFixtures(new Set());setExpandedGroups(new Set());}else{setExpandedFixtures(new Set(fixtures.map(fx=>fx.id)));setExpandedGroups(new Set(fixtures.flatMap(fx=>PARAM_GROUPS.map(g=>fx.id+"-"+g.group))));}}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.35)",color:"#ccc",borderRadius:3,cursor:"pointer",fontSize:10,padding:"2px 6px",touchAction:"manipulation",minHeight:24,boxShadow:"0 0 0 1px rgba(255,255,255,0.08)"}} title="Collapse/Expand all">{fixtures.every(fx=>expandedFixtures.has(fx.id))?"\u25BC":"\u25B6"}</button><button onClick={()=>{if(focusMode){setFocusMode(false);setFocusExpandedFx(new Set());const groupName=PARAM_GROUPS.find(g=>g.params.some(p=>p.id===activeParam))?.group;setExpandedGroups(new Set(fixtures.map(fx=>`${fx.id}-${groupName||PARAM_GROUPS[0].group}`)));}else{setFocusMode(true);setFocusExpandedFx(new Set());}}} style={{background:focusMode?"#0e1c30":"rgba(255,255,255,0.03)",border:"1px solid "+(focusMode?"#3366aa":"rgba(255,255,255,0.12)"),color:focusMode?"#88aadd":"#556",borderRadius:3,cursor:"pointer",fontSize:9,padding:"2px 7px",touchAction:"manipulation",minHeight:24,letterSpacing:1,fontWeight:focusMode?"bold":"normal",boxShadow:focusMode?"0 0 8px #3366aa44":"none",transition:"all 0.2s"}} title="Focus Mode: show only selected parameter per fixture">{focusMode?"\u25CE FOCUS":"\u25CB FOCUS"}</button><span>FIXTURE {"\u00BB"} PARAMETER</span></div>
+                <div style={{width:LABEL_W+PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:8,color:"rgba(255,255,255,0.2)",letterSpacing:2}}><button onClick={()=>{const allExpanded=fixtures.every(fx=>expandedFixtures.has(fx.id));if(allExpanded){setExpandedFixtures(new Set());setExpandedGroups(new Set());}else{setExpandedFixtures(new Set(fixtures.map(fx=>fx.id)));setExpandedGroups(new Set(fixtures.flatMap(fx=>PARAM_GROUPS.map(g=>fx.id+"-"+g.group))));}}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.35)",color:"#ccc",borderRadius:3,cursor:"pointer",fontSize:10,padding:"2px 6px",touchAction:"manipulation",minHeight:24,boxShadow:"0 0 0 1px rgba(255,255,255,0.08)"}} title="Collapse/Expand all">{fixtures.every(fx=>expandedFixtures.has(fx.id))?"\u25BC":"\u25B6"}</button><button onClick={()=>{if(focusMode){setFocusMode(false);setFocusExpandedFx(new Set());const groupName=PARAM_GROUPS.find(g=>g.params.some(p=>p.id===activeParam))?.group;setExpandedGroups(new Set(fixtures.map(fx=>`${fx.id}-${groupName||PARAM_GROUPS[0].group}`)));}else{setFocusMode(true);setFocusExpandedFx(new Set());}}} style={{background:focusMode?"#0e1c30":"rgba(255,255,255,0.03)",border:"1px solid "+(focusMode?"#3366aa":"rgba(255,255,255,0.12)"),color:focusMode?"#88aadd":"#556",borderRadius:3,cursor:"pointer",fontSize:9,padding:"2px 7px",touchAction:"manipulation",minHeight:24,letterSpacing:1,fontWeight:focusMode?"bold":"normal",boxShadow:focusMode?"0 0 8px #3366aa44":"none",transition:"all 0.2s"}} title="Focus Mode: show only selected parameter per fixture">{focusMode?"\u25CE FOCUS":"\u25CB FOCUS"}</button><button onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:"bulk_floor",step:"from",value:"",rect:{top:r.bottom+4,left:r.left}});}} style={{background:"rgba(68,170,255,0.06)",border:"1px solid rgba(68,170,255,0.3)",color:"#4488cc",borderRadius:3,cursor:"pointer",fontSize:8,padding:"2px 5px",touchAction:"manipulation",minHeight:24,letterSpacing:1,fontWeight:"bold"}} title="Set floor level for fixture range">FLR</button><button onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:"bulk_park",step:"from",value:"",rect:{top:r.bottom+4,left:r.left}});}} style={{background:"rgba(255,68,68,0.06)",border:"1px solid rgba(255,68,68,0.3)",color:"#cc5544",borderRadius:3,cursor:"pointer",fontSize:8,padding:"2px 5px",touchAction:"manipulation",minHeight:24,letterSpacing:1,fontWeight:"bold"}} title="Park value for fixture range">PRK</button><span>FIXTURE {"\u00BB"} PARAMETER</span></div>
                 <div style={{position:"relative",flex:1,cursor:rulerTapJump?"pointer":"default"}} onClick={e=>{if(!rulerTapJump)return;const rect=e.currentTarget.getBoundingClientRect();const x=e.clientX-rect.left;const beat=Math.max(0,xToBeat(x));const snapped=snapToGrid?Math.round(beat):beat;playheadRef.current=snapped;setDisplayPlayhead(snapped);if(audioMode==="file"&&playing)audioEngine.seekTo(snapped);}}>
                   {loopEnabled&&<>
                     <div style={{position:"absolute",top:0,height:"100%",left:beatToX(loopStart),width:beatToX(loopEnd-loopStart),background:"rgba(68,255,170,0.07)",pointerEvents:"none"}}/>
@@ -5255,7 +5293,7 @@ function LightingTimeline() {
               </div>}
             </div>
 
-            {(()=>{const headerH=RULER_H+(waveformPeaks?40:0);const OVERSCAN=300;const visTop=scrollTopRef.current-OVERSCAN-headerH;const visBot=scrollTopRef.current+viewportHRef.current+OVERSCAN-headerH;return rows.filter(r=>(r.y+r.h)>=visTop&&r.y<=visBot);})().map((row,ri)=>{
+            {(()=>{const headerH=RULER_H+(waveformPeaks?40:0);const OVERSCAN=300;const st=scrollTopState;const visTop=st-OVERSCAN-headerH;const visBot=st+viewportHRef.current+OVERSCAN-headerH;return rows.filter(r=>(r.y+r.h)>=visTop&&r.y<=visBot);})().map((row,ri)=>{
               if(row.type==="fixture"){
                 const fx=fixtures.find(f=>f.id===row.fixtureId);
                 const isExp=expandedFixtures.has(fx.id);
@@ -5324,6 +5362,29 @@ function LightingTimeline() {
                         <span style={{fontSize:8,color:"#ffaa44",textAlign:"right"}}>{Math.round(row.val*100)}%</span>
                       </div>
                     ))}
+                  </div>
+                  <div style={{border:"1px solid "+(selCue.delay?"#8844cc44":"#1e222a"),borderRadius:10,padding:8,marginTop:6,background:selCue.delay?"#8844cc08":"transparent",transition:"all 0.2s"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:selCue.delay?8:0}}>
+                      <span style={{fontSize:9,color:selCue.delay?"#bb66ff":"#555",letterSpacing:2,fontWeight:"bold"}}>DELAY</span>
+                      <div style={{display:"flex",gap:6}}>
+                        {selCue.delay&&<button onClick={()=>{const now=Date.now();const prev=window.__delayTapTimes||[];prev.push(now);if(prev.length>8) prev.shift();window.__delayTapTimes=prev;if(prev.length>=2){const intervals=[];for(let i=1;i<prev.length;i++){const d=prev[i]-prev[i-1];if(d<3000) intervals.push(d);}if(intervals.length>0){const avgMs=intervals.reduce((a,b)=>a+b,0)/intervals.length;const beatsPerMs=bpm/(60*1000);const delayBeats=Math.round(avgMs*beatsPerMs*16)/16;updateCue("delayTime",Math.max(0.0625,Math.min(4,delayBeats)));}}}} style={{padding:"4px 14px",fontSize:10,fontWeight:"bold",background:"#8844cc22",border:"1px solid #8844cc",color:"#bb66ff",borderRadius:6,cursor:"pointer",letterSpacing:1,minHeight:26,touchAction:"manipulation"}}>TAP</button>}
+                        <button onClick={()=>updateCue("delay",!selCue.delay)} style={{padding:"4px 14px",fontSize:10,fontWeight:"bold",background:selCue.delay?"#8844cc33":"#0c0e12",border:"1px solid "+(selCue.delay?"#8844cc":"#252930"),color:selCue.delay?"#bb66ff":"#555",borderRadius:6,cursor:"pointer",letterSpacing:1,minHeight:26,touchAction:"manipulation"}}>{selCue.delay?"ON":"OFF"}</button>
+                      </div>
+                    </div>
+                    {selCue.delay&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      <div>
+                        <GlowSlider min={0.0625} max={4} step={0.0625} value={selCue.delayTime||0.25} onChange={v=>updateCue("delayTime",v)} color="#8844cc" label="TIME" midiId="cue-delayTime"/>
+                        <div style={{fontSize:8,color:"#8844cc",textAlign:"right",marginTop:1}}>{selCue.delayTime||0.25} beats</div>
+                      </div>
+                      <div>
+                        <GlowSlider min={1} max={16} step={1} value={selCue.delayRepeats||3} onChange={v=>updateCue("delayRepeats",v)} color="#8844cc" label="REPEATS" midiId="cue-delayRepeats"/>
+                        <div style={{fontSize:8,color:"#8844cc",textAlign:"right",marginTop:1}}>{selCue.delayRepeats||3}x</div>
+                      </div>
+                      <div>
+                        <GlowSlider min={0.1} max={0.95} step={0.05} value={selCue.delayDecay||0.6} onChange={v=>updateCue("delayDecay",v)} color="#8844cc" label="DECAY" midiId="cue-delayDecay"/>
+                        <div style={{fontSize:8,color:"#8844cc",textAlign:"right",marginTop:1}}>{Math.round((selCue.delayDecay||0.6)*100)}%</div>
+                      </div>
+                    </div>}
                   </div>
                   <div style={{borderTop:"1px solid #1e222a",paddingTop:6}}>
                     <div style={{fontSize:8,color:"#3a3f4c",letterSpacing:2,marginBottom:6}}>EASING</div>
@@ -6543,6 +6604,71 @@ function LightingTimeline() {
                 <button onClick={kpClear} style={{minHeight:42,padding:"10px 0",fontSize:12,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff5544",borderRadius:8,cursor:"pointer",letterSpacing:1}}>CLR</button>
                 <button onClick={goNext} style={{minHeight:42,padding:"10px 0",fontSize:13,fontWeight:"bold",background:"#0a1a0a",border:"1px solid #44ffaa44",color:"#44ffaa",borderRadius:8,cursor:"pointer",letterSpacing:2}}>{stepIdx<steps.length-1?"NEXT":"APPLY"}</button>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {keypadState && (keypadState.field==='bulk_floor'||keypadState.field==='bulk_park') && (()=>{
+        const isFloor=keypadState.field==='bulk_floor';
+        const color=isFloor?'#44aaff':'#ff5544';
+        const title=isFloor?'BULK FLOOR':'BULK PARK';
+        const steps=['from','thru','value'];
+        const param=getParam(activeParam);
+        const stepLabels={from:'FROM FIXTURE #',thru:'THRU FIXTURE #',value:(isFloor?'FLOOR':'PARK')+' VALUE ('+param.label+' '+param.min+'–'+param.max+')'};
+        const stepKey=keypadState.step;
+        const stepIdx=steps.indexOf(stepKey);
+        const kpPress=(d)=>setKeypadState(prev=>prev.dirty?({...prev,value:prev.value+d,[stepKey]:prev.value+d}):({...prev,value:String(d),[stepKey]:String(d),dirty:true}));
+        const kpClear=()=>setKeypadState(prev=>({...prev,value:'',[stepKey]:'',dirty:true}));
+        const kpBack=()=>setKeypadState(prev=>{const nv=prev.value.slice(0,-1);return{...prev,value:nv,[stepKey]:nv};});
+        const goNext=()=>{
+          if(stepIdx<steps.length-1){
+            const nextStep=steps[stepIdx+1];
+            setKeypadState(prev=>({...prev,step:nextStep,value:prev[nextStep]||'',dirty:false}));
+          } else {
+            const from=parseInt(keypadState.from)-1,thru=parseInt(keypadState.thru)-1,val=parseInt(keypadState.value);
+            if(isNaN(from)||isNaN(thru)||isNaN(val)||from<0||thru<from||thru>=fixtures.length){setKeypadState(null);return;}
+            const clamped=Math.max(param.min,Math.min(param.max,val));
+            if(isFloor){
+              setParamFloors(prev=>{const n={...prev};for(let i=from;i<=thru;i++){const lk=fixtures[i].id+"-"+activeParam;if(clamped<=param.min)delete n[lk];else n[lk]=clamped;}return n;});
+            } else {
+              setParamOverrides(prev=>{const n={...prev};for(let i=from;i<=thru;i++){n[fixtures[i].id+"-"+activeParam]=clamped;}return n;});
+            }
+            setKeypadState(null);
+          }
+        };
+        const goBack=()=>{
+          if(stepIdx>0){const prevStep=steps[stepIdx-1];setKeypadState(prev=>({...prev,step:prevStep,value:prev[prevStep]||'',dirty:false}));}
+          else setKeypadState(null);
+        };
+        return (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10001}} onClick={()=>setKeypadState(null)}>
+            <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:Math.min(keypadState.rect.top,window.innerHeight-420),left:Math.min(keypadState.rect.left,window.innerWidth-222),width:210,background:"#141820",border:"1px solid "+color+"66",borderRadius:8,boxShadow:"0 8px 30px rgba(0,0,0,0.9)",padding:12,display:"flex",flexDirection:"column",gap:5}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{fontSize:9,color:color,letterSpacing:1,fontWeight:"bold"}}>{title}</span>
+                <span style={{fontSize:8,color:"#555"}}>Step {stepIdx+1}/{steps.length}</span>
+              </div>
+              <div style={{display:"flex",gap:4,marginBottom:2}}>
+                {steps.map((s,i)=><div key={s} style={{flex:1,height:3,borderRadius:2,background:i<=stepIdx?color:"#252930"}}/>)}
+              </div>
+              <div style={{fontSize:9,color:color+"aa",letterSpacing:1,textAlign:"center",padding:"2px 0"}}>{stepLabels[stepKey]}</div>
+              <div style={{background:"#080a0e",border:"1px solid "+color+"44",borderRadius:8,padding:"6px 10px",fontSize:16,color:keypadState.dirty?color:color+"66",fontFamily:"monospace",textAlign:"right",minHeight:24,letterSpacing:2}}>{keypadState.value||'0'}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5}}>
+                {[1,2,3,4,5,6,7,8,9].map(d=>(
+                  <button key={d} onClick={()=>kpPress(String(d))} style={{minWidth:42,minHeight:42,padding:"10px 0",fontSize:16,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#ddd",borderRadius:8,cursor:"pointer",fontFamily:"monospace"}}>{d}</button>
+                ))}
+                <button onClick={goBack} style={{minWidth:42,minHeight:42,padding:"10px 0",fontSize:9,fontWeight:"bold",background:"#1a1e28",border:"1px solid "+color+"33",color:color,borderRadius:8,cursor:"pointer"}}>{stepIdx>0?"BACK":"ESC"}</button>
+                <button onClick={()=>kpPress('0')} style={{minWidth:42,minHeight:42,padding:"10px 0",fontSize:16,fontWeight:"bold",background:"#1a1e28",border:"1px solid #252930",color:"#ddd",borderRadius:8,cursor:"pointer",fontFamily:"monospace"}}>0</button>
+                <button onClick={kpBack} style={{minWidth:42,minHeight:42,padding:"10px 0",fontSize:14,background:"#1a1e28",border:"1px solid #252930",color:"#888",borderRadius:8,cursor:"pointer"}}>&#9003;</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                <button onClick={kpClear} style={{minHeight:42,padding:"10px 0",fontSize:12,fontWeight:"bold",background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff5544",borderRadius:8,cursor:"pointer",letterSpacing:1}}>CLR</button>
+                <button onClick={goNext} style={{minHeight:42,padding:"10px 0",fontSize:13,fontWeight:"bold",background:stepIdx<steps.length-1?"#0a1a2a":"#0a1a0a",border:"1px solid "+(stepIdx<steps.length-1?color+"44":"#44ffaa44"),color:stepIdx<steps.length-1?color:"#44ffaa",borderRadius:8,cursor:"pointer",letterSpacing:2}}>{stepIdx<steps.length-1?"NEXT":"APPLY"}</button>
+              </div>
+              {stepKey==='value'&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                <button onClick={()=>{setKeypadState(prev=>({...prev,value:String(param.max),[stepKey]:String(param.max),dirty:true}));}} style={{minHeight:36,fontSize:10,fontWeight:"bold",background:"#0e1c10",border:"1px solid #44ff7755",color:"#44ff77",borderRadius:8,cursor:"pointer"}}>FULL {param.max}</button>
+                <button onClick={()=>{setKeypadState(prev=>({...prev,value:String(param.min),[stepKey]:String(param.min),dirty:true}));}} style={{minHeight:36,fontSize:10,fontWeight:"bold",background:"#1a0e1e",border:"1px solid #aa55cc55",color:"#aa66cc",borderRadius:8,cursor:"pointer"}}>ZERO {param.min}</button>
+              </div>}
             </div>
           </div>
         );
