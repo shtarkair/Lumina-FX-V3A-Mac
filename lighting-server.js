@@ -635,16 +635,20 @@ setTimeout(() => {
     if (IS_GIT_REPO) {
       // === GIT MODE ===
       try {
-        const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
-        fs.mkdirSync(backupDir, { recursive: true });
-        for (const fname of UPDATE_FILES) {
-          const src = path.join(__dirname, fname);
-          if (fs.existsSync(src)) {
-            const destPath = path.join(backupDir, fname);
-            fs.mkdirSync(path.dirname(destPath), { recursive: true });
-            fs.copyFileSync(src, destPath);
+        try {
+          const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
+          fs.mkdirSync(backupDir, { recursive: true });
+          for (const fname of UPDATE_FILES) {
+            try {
+              const src = path.join(__dirname, fname);
+              if (fs.existsSync(src)) {
+                const destPath = path.join(backupDir, fname);
+                fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                fs.copyFileSync(src, destPath);
+              }
+            } catch (be) { console.log('[UPDATE] Backup skip:', fname, be.message); }
           }
-        }
+        } catch (backupErr) { console.log('[UPDATE] Backup skipped:', backupErr.message); }
         let packageWillChange = false;
         try { packageWillChange = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().includes('package.json'); } catch(e) {}
         const pullOutput = execSync('git pull origin master', { cwd: __dirname, timeout: 30000, stdio: 'pipe' }).toString().trim();
@@ -665,18 +669,22 @@ setTimeout(() => {
           const release = JSON.parse(releaseData.toString());
           const tag = release.tag_name;
 
-          // Backup current files
-          const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
-          fs.mkdirSync(backupDir, { recursive: true });
-          for (const fname of UPDATE_FILES) {
-            const src = path.join(__dirname, fname);
-            if (fs.existsSync(src)) {
-              const destPath = path.join(backupDir, fname);
-              fs.mkdirSync(path.dirname(destPath), { recursive: true });
-              fs.copyFileSync(src, destPath);
+          // Backup current files (non-fatal — skip if backup fails)
+          try {
+            const backupDir = path.join(__dirname, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
+            fs.mkdirSync(backupDir, { recursive: true });
+            for (const fname of UPDATE_FILES) {
+              try {
+                const src = path.join(__dirname, fname);
+                if (fs.existsSync(src)) {
+                  const destPath = path.join(backupDir, fname);
+                  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+                  fs.copyFileSync(src, destPath);
+                }
+              } catch (be) { console.log('[UPDATE] Backup skip:', fname, be.message); }
             }
-          }
-          console.log('[UPDATE] Backup created:', backupDir);
+            console.log('[UPDATE] Backup done');
+          } catch (backupErr) { console.log('[UPDATE] Backup skipped:', backupErr.message); }
 
           // Download each file from GitHub at the release tag
           let downloaded = 0;
