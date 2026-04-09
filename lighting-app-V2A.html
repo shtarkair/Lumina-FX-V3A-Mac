@@ -3068,6 +3068,16 @@ function LightingTimeline() {
   const [mvrPositions, setMvrPositions] = useState({}); // uuid → position override
   const [mvrLoading, setMvrLoading] = useState(false);
   const [mvrPosDropdown, setMvrPosDropdown] = useState(null); // uuid of open dropdown
+  // CSV Import state
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+  const [csvStep, setCsvStep] = useState("map"); // "map" or "preview"
+  const [csvRawRows, setCsvRawRows] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [csvMapping, setCsvMapping] = useState({name:null,universe:null,address:null,type:null,channels:null});
+  const [csvFixtures, setCsvFixtures] = useState([]);
+  const [csvSelected, setCsvSelected] = useState(new Set());
+  const [csvPositions, setCsvPositions] = useState({});
+  const [csvPosDropdown, setCsvPosDropdown] = useState(null);
   const [displayScale, setDisplayScale] = useState(()=>{ try { return parseFloat(localStorage.getItem("lumina-display-scale"))||1; } catch(e){ return 1; } });
   useEffect(() => { _lsSaveFixtures(fixtures); }, [fixtures]);
   useEffect(() => { localStorage.setItem("lumina-display-scale", String(displayScale)); }, [displayScale]);
@@ -7713,6 +7723,153 @@ function LightingTimeline() {
         </div>
       )}
 
+      {/* CSV Import Dialog */}
+      {csvDialogOpen && (
+        <div onMouseDown={e=>e.stopPropagation()} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{setCsvDialogOpen(false);setCsvPosDropdown(null);}}>
+          <div onClick={e=>{e.stopPropagation();setCsvPosDropdown(null);}} style={{background:"#0e1018",border:"1px solid #44aaff44",borderRadius:8,width:800,maxHeight:"85vh",boxShadow:"0 8px 40px rgba(0,0,0,0.8)",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",alignItems:"center",padding:"12px 16px",borderBottom:"1px solid #1e222a"}}>
+              <span style={{fontSize:12,fontWeight:"bold",color:"#44aaff",letterSpacing:2}}>📋 CSV IMPORT</span>
+              <span style={{marginLeft:8,fontSize:10,color:"#666"}}>{csvStep==="map"?"COLUMN MAPPING":csvFixtures.length+" fixture"+(csvFixtures.length!==1?"s":"")}</span>
+              <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+                {csvStep==="preview"&&<>
+                  <button onClick={()=>setCsvSelected(new Set(csvFixtures.map((_,i)=>i)))} style={{padding:"3px 8px",fontSize:8,background:"none",border:"1px solid #333",color:"#888",borderRadius:3,cursor:"pointer",letterSpacing:1}}>SELECT ALL</button>
+                  <button onClick={()=>setCsvSelected(new Set())} style={{padding:"3px 8px",fontSize:8,background:"none",border:"1px solid #333",color:"#888",borderRadius:3,cursor:"pointer",letterSpacing:1}}>DESELECT</button>
+                </>}
+                <button onClick={()=>{setCsvDialogOpen(false);setCsvPosDropdown(null);}} style={{padding:"4px 10px",fontSize:11,background:"none",border:"1px solid #333",color:"#666",borderRadius:3,cursor:"pointer"}}>✕</button>
+              </div>
+            </div>
+            {csvStep==="map"?(
+              <div style={{padding:16,display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{fontSize:10,color:"#888",marginBottom:4}}>Map your CSV columns to Lumina fields. Name and Address are required.</div>
+                {[{key:"name",label:"FIXTURE NAME",req:true},{key:"universe",label:"UNIVERSE",req:false},{key:"address",label:"DMX ADDRESS",req:true},{key:"type",label:"FIXTURE TYPE / MODEL",req:false},{key:"channels",label:"CHANNEL COUNT",req:false}].map(f=>(
+                  <div key={f.key} style={{display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{width:160,fontSize:10,color:f.req?"#44aaff":"#666",fontWeight:f.req?"bold":"normal",letterSpacing:1}}>{f.label}{f.req?" *":""}</span>
+                    <select value={csvMapping[f.key]===null?"":String(csvMapping[f.key])} onChange={e=>{const v=e.target.value;setCsvMapping(prev=>({...prev,[f.key]:v===""?null:parseInt(v)}));}} style={{flex:1,background:"#0c0e12",border:"1px solid #252930",color:"#ccc",borderRadius:4,padding:"6px 8px",fontSize:11}}>
+                      <option value="">— skip —</option>
+                      {csvHeaders.map((h,i)=><option key={i} value={i}>{h}{csvRawRows[0]?" (e.g. "+csvRawRows[0][i]+")":""}</option>)}
+                    </select>
+                  </div>
+                ))}
+                <div style={{fontSize:9,color:"#444",marginTop:4}}>Preview: {csvRawRows.length} data rows found</div>
+                <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+                  <button onClick={()=>{setCsvDialogOpen(false);}} style={{padding:"6px 16px",fontSize:10,background:"none",border:"1px solid #333",color:"#888",borderRadius:3,cursor:"pointer"}}>CANCEL</button>
+                  <button onClick={()=>{
+                    if(csvMapping.name===null||csvMapping.address===null){alert("Name and Address columns are required");return;}
+                    const parsed=csvRawRows.map((row,i)=>{
+                      const name=row[csvMapping.name]||("Fixture "+(i+1));
+                      const uni=csvMapping.universe!==null?parseInt(row[csvMapping.universe])||1:1;
+                      const addr=parseInt(row[csvMapping.address])||1;
+                      const type=csvMapping.type!==null?(row[csvMapping.type]||""):"";
+                      const ch=csvMapping.channels!==null?parseInt(row[csvMapping.channels])||1:1;
+                      return {name,universe:uni,address:addr,typeName:type,channels:ch};
+                    }).filter(f=>f.address>0);
+                    setCsvFixtures(parsed);
+                    setCsvSelected(new Set(parsed.map((_,i)=>i)));
+                    setCsvPositions({});
+                    setCsvStep("preview");
+                  }} disabled={csvMapping.name===null||csvMapping.address===null} style={{padding:"6px 16px",fontSize:10,background:"#0a0a1a",border:"1px solid #44aaff66",color:"#44aaff",borderRadius:3,cursor:csvMapping.name!==null&&csvMapping.address!==null?"pointer":"not-allowed",letterSpacing:1,fontWeight:"bold",opacity:csvMapping.name!==null&&csvMapping.address!==null?1:0.5}}>NEXT →</button>
+                </div>
+              </div>
+            ):(
+              <>
+                <div style={{display:"flex",padding:"6px 16px",gap:4,borderBottom:"1px solid #1a1d22",fontSize:8,color:"#555",letterSpacing:1}}>
+                  <span style={{width:24,textAlign:"center"}}>☑</span>
+                  <span style={{width:30,textAlign:"center"}}>UNI</span>
+                  <span style={{width:40,textAlign:"center"}}>ADDR</span>
+                  <span style={{flex:1}}>NAME</span>
+                  <span style={{width:140}}>TYPE</span>
+                  <span style={{width:40,textAlign:"center"}}>CH</span>
+                  <span style={{width:90}}>POSITION</span>
+                </div>
+                <div style={{flex:1,overflowY:"auto",padding:"4px 16px 8px",maxHeight:"50vh"}}>
+                  {csvFixtures.length===0&&<div style={{padding:20,textAlign:"center",fontSize:11,color:"#444"}}>No valid fixtures found in CSV</div>}
+                  {csvFixtures.map((fx,idx)=>{
+                    const sel=csvSelected.has(idx);
+                    const pos=csvPositions[idx]||'FRONT 1';
+                    const posCol=POSITION_COLORS[pos]||'#888';
+                    return (
+                      <div key={idx} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 0",borderTop:"1px solid #1a1d22",opacity:sel?1:0.5}}>
+                        <span onClick={e=>{e.stopPropagation();setCsvSelected(prev=>{const n=new Set(prev);if(n.has(idx))n.delete(idx);else n.add(idx);return n;});}} style={{width:24,textAlign:"center",fontSize:12,color:sel?"#44aaff":"#333",cursor:"pointer"}}>{sel?"☑":"☐"}</span>
+                        <span style={{width:30,textAlign:"center",fontSize:10,color:"#4488ff"}}>{fx.universe}</span>
+                        <span style={{width:40,textAlign:"center",fontSize:10,color:"#44ffaa",fontFamily:"monospace"}}>{String(fx.address).padStart(3,'0')}</span>
+                        <div style={{flex:1,overflow:"hidden"}}><div style={{fontSize:10,color:"#ddd",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fx.name}</div></div>
+                        <div style={{width:140,overflow:"hidden"}}><div style={{fontSize:10,color:"#aaa",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fx.typeName||'—'}</div></div>
+                        <span style={{width:40,textAlign:"center",fontSize:10,color:"#888"}}>{fx.channels}</span>
+                        <div style={{width:90,position:"relative"}}>
+                          <div onClick={e=>{e.stopPropagation();setCsvPosDropdown(csvPosDropdown===idx?null:idx);}} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 6px",border:"1px solid "+posCol+"44",borderRadius:3,cursor:"pointer",fontSize:9,color:posCol}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:posCol,flexShrink:0}}/>
+                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pos}</span>
+                          </div>
+                          {csvPosDropdown===idx&&(
+                            <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:10,background:"#14161e",border:"1px solid #2a2d36",borderRadius:8,padding:2,boxShadow:"0 4px 12px rgba(0,0,0,0.6)"}}>
+                              {FIXTURE_POSITIONS.map(p=>{
+                                const pc=POSITION_COLORS[p]||'#888';
+                                return <div key={p} onClick={e=>{e.stopPropagation();setCsvPositions(prev=>({...prev,[idx]:p}));setCsvPosDropdown(null);}} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 6px",cursor:"pointer",borderRadius:2,fontSize:8,color:pos===p?pc:"#aaa",background:pos===p?pc+"18":"transparent"}}><div style={{width:5,height:5,borderRadius:"50%",background:pc,flexShrink:0}}/><span>{p}</span></div>;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{padding:"10px 16px",borderTop:"1px solid #1e222a",display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:9,color:"#666"}}>{csvSelected.size} of {csvFixtures.length} selected</span>
+                  <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+                    <button onClick={()=>setCsvStep("map")} style={{padding:"6px 16px",fontSize:10,background:"none",border:"1px solid #333",color:"#888",borderRadius:3,cursor:"pointer",letterSpacing:1}}>← BACK</button>
+                    <button onClick={()=>{setCsvDialogOpen(false);setCsvPosDropdown(null);}} style={{padding:"6px 16px",fontSize:10,background:"none",border:"1px solid #333",color:"#888",borderRadius:3,cursor:"pointer",letterSpacing:1}}>CANCEL</button>
+                    <button onClick={()=>{
+                      if(csvSelected.size===0) return;
+                      if(!fixtureLibraryData){fetch('/fixture-library.json').then(r=>r.json()).then(data=>setFixtureLibraryData(data)).catch(()=>{});}
+                      const maxId=fixtures.reduce((m,f)=>Math.max(m,f.id),0);
+                      const newFixtures=[];
+                      const newPatch={...dmxPatch};
+                      csvFixtures.forEach((csv,idx)=>{
+                        if(!csvSelected.has(idx)) return;
+                        const fxId=maxId+1+newFixtures.length;
+                        // Profile matching: try existing profiles by type name
+                        let profileName=null;
+                        const typeKey=(csv.typeName||'').toUpperCase().replace(/[^A-Z0-9]/g,'_');
+                        if(typeKey&&DMX_PROFILES[typeKey]) profileName=typeKey;
+                        // Try partial match
+                        if(!profileName&&typeKey){
+                          const match=Object.keys(DMX_PROFILES).find(k=>k.includes(typeKey)||typeKey.includes(k));
+                          if(match) profileName=match;
+                        }
+                        // Generic fallback: create profile from channel count
+                        if(!profileName){
+                          const genName=typeKey?(typeKey+'_'+csv.channels+'CH'):('CSV_'+csv.channels+'CH');
+                          if(!DMX_PROFILES[genName]){
+                            const map={dimmer:{offset:0,bits:8}};
+                            if(csv.channels>=3){map.pan={offset:1,bits:8};map.tilt={offset:2,bits:8};}
+                            if(csv.channels>=6){map.cyan={offset:3,bits:8};map.magenta={offset:4,bits:8};map.yellow={offset:5,bits:8};}
+                            DMX_PROFILES[genName]={channels:csv.channels,map};
+                            TYPE_COLORS[genName]='#44aaff';
+                            try{const cp=JSON.parse(localStorage.getItem("lumina-custom-profiles")||"{}");cp[genName]={channels:csv.channels,map,color:'#44aaff'};localStorage.setItem("lumina-custom-profiles",JSON.stringify(cp));}catch(e){}
+                          }
+                          profileName=genName;
+                        }
+                        const pos=csvPositions[idx]||'FRONT 1';
+                        const color=TYPE_COLORS[profileName]||POSITION_COLORS[pos]||'#44aaff';
+                        newFixtures.push({id:fxId,name:csv.name,color,type:profileName,position:pos});
+                        newPatch[fxId]={universe:csv.universe,address:csv.address,profile:profileName,overrides:{}};
+                      });
+                      setFixtures(prev=>[...prev,...newFixtures]);
+                      setDmxPatch(newPatch);
+                      setCsvDialogOpen(false);
+                      setCsvPosDropdown(null);
+                      setCustomProfilesVer(v=>v+1);
+                    }} style={{padding:"6px 16px",fontSize:10,background:"#0a0a1a",border:"1px solid #44aaff66",color:"#44aaff",borderRadius:3,cursor:csvSelected.size>0?"pointer":"not-allowed",letterSpacing:1,fontWeight:"bold",opacity:csvSelected.size>0?1:0.5}}>
+                      IMPORT {csvSelected.size>0?csvSelected.size+" ":""}SELECTED
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* RDM Discovery Results Dialog */}
       {rdmDialogOpen && (
         <div onMouseDown={e=>e.stopPropagation()} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:10004,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setRdmDialogOpen(false)}>
@@ -7979,6 +8136,43 @@ function LightingTimeline() {
                 input.click();
               }} style={{flex:1,padding:"6px 0",fontSize:10,background:mvrLoading?"#1a0a2a":"#0a0a1a",border:"1px solid #8844ff44",color:mvrLoading?"#664488":"#8844ff",borderRadius:3,cursor:mvrLoading?"wait":"pointer",letterSpacing:1,fontWeight:"bold",opacity:mvrLoading?0.6:1}}>
                 {mvrLoading ? "📦 PARSING..." : "📦 IMPORT MVR"}
+              </button>
+              <button onClick={()=>{
+                const input=document.createElement('input');
+                input.type='file';
+                input.accept='.csv,.tsv,.txt';
+                input.onchange=(e)=>{
+                  const file=e.target.files[0];
+                  if(!file) return;
+                  const reader=new FileReader();
+                  reader.onload=(ev)=>{
+                    const text=ev.target.result;
+                    const sep=text.includes('\t')?'\t':(text.split('\n')[0]||'').split(',').length>2?',':';';
+                    const lines=text.split(/\r?\n/).filter(l=>l.trim());
+                    if(lines.length<2){alert('CSV has no data rows');return;}
+                    const headers=lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+                    const rows=lines.slice(1).map(l=>l.split(sep).map(c=>c.trim().replace(/^"|"$/g,'')));
+                    setCsvHeaders(headers);
+                    setCsvRawRows(rows);
+                    // Auto-map columns by common names
+                    const autoMap={name:null,universe:null,address:null,type:null,channels:null};
+                    headers.forEach((h,i)=>{
+                      const hl=h.toLowerCase().replace(/[^a-z0-9]/g,'');
+                      if(!autoMap.name&&(hl.includes('name')||hl.includes('fixture')||hl.includes('label'))) autoMap.name=i;
+                      if(!autoMap.universe&&(hl.includes('universe')||hl.includes('uni')||hl==='u')) autoMap.universe=i;
+                      if(!autoMap.address&&(hl.includes('address')||hl.includes('addr')||hl.includes('dmx')||hl.includes('channel'))) autoMap.address=i;
+                      if(!autoMap.type&&(hl.includes('type')||hl.includes('profile')||hl.includes('model')||hl.includes('fixture type')||hl.includes('fixttype'))) autoMap.type=i;
+                      if(!autoMap.channels&&(hl.includes('channels')||hl.includes('ch')||hl.includes('footprint'))) autoMap.channels=i;
+                    });
+                    setCsvMapping(autoMap);
+                    setCsvStep("map");
+                    setCsvDialogOpen(true);
+                  };
+                  reader.readAsText(file);
+                };
+                input.click();
+              }} style={{flex:1,padding:"6px 0",fontSize:10,background:"#0a0a1a",border:"1px solid #44aaff44",color:"#44aaff",borderRadius:3,cursor:"pointer",letterSpacing:1,fontWeight:"bold"}}>
+                📋 IMPORT CSV
               </button>
               <button onClick={()=>{
                 setDmxPatch(prev => {
