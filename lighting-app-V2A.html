@@ -28,6 +28,11 @@
       45%,55% { color:#ffffff; background:#00ffee99; box-shadow:0 0 18px #00ffeeff,0 0 36px #00ffee99; border-radius:2px; }
     }
     .lme-flash { animation: lmeFlash 0.6s ease-in-out infinite; }
+    @keyframes soloFlash {
+      0%,100% { color:#ffcc00; background:#ffcc0044; box-shadow:0 0 10px #ffcc00cc,0 0 20px #ffcc0066; border-radius:3px; }
+      45%,55% { color:#ffffff; background:#ffcc0099; box-shadow:0 0 18px #ffee44ff,0 0 36px #ffee4499; border-radius:3px; }
+    }
+    .solo-flash { animation: soloFlash 0.8s ease-in-out infinite; }
     /* macOS-style floating panel */
     .lm-float { border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04); }
     /* Pill button group wrapper */
@@ -41,13 +46,6 @@
     @keyframes splashGlow { 0%,100% { text-shadow: 0 0 20px #cc994400, 0 0 40px #cc994400; opacity:0.7; } 50% { text-shadow: 0 0 20px #cc9944aa, 0 0 60px #cc994466, 0 0 100px #cc994422; opacity:1; } }
     @keyframes splashDot { 0%,80%,100% { opacity:0.2; } 40% { opacity:1; } }
     @keyframes splashFadeOut { 0% { opacity:1; } 100% { opacity:0; pointer-events:none; } }
-     to { left:44vw; } }
-     to { left:-25vw; } }
-     to { transform:scaleX(-1) translateY(-6px); } }
-     65%{transform:scaleX(-1) translateX(50%) scale(1.12);} 100%{opacity:1;transform:scaleX(-1) translateX(50%) scale(1);} }
-     to{height:65px;opacity:1;} }
-     to{width:58px;height:16px;opacity:1;} }
-     100%{opacity:0;transform:scale(0.8);} }
     #splash { position:fixed; inset:0; z-index:99999; background:#0f1115; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; font-family:"Courier New",monospace; transition:opacity 0.4s ease-out; }
     #splash.hide { animation: splashFadeOut 0.4s ease-out forwards; }
     #splash .logo { font-size:32px; font-weight:bold; color:#cc9944; letter-spacing:8px; animation: splashGlow 2s ease-in-out infinite; }
@@ -66,8 +64,8 @@
   </div>
   <div id="root"></div>
   <script>new MutationObserver(function(m,o){if(document.getElementById('root').children.length>0){var s=document.getElementById('splash');if(s){s.classList.add('hide');setTimeout(function(){s.remove();},500);}o.disconnect();}}).observe(document.getElementById('root'),{childList:true});</script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="lib/react.production.min.js"></script>
+  <script src="lib/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script type="text/babel">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
@@ -255,6 +253,19 @@ function generateDefaultPatch(fixtures) {
   return patch;
 }
 
+// PERF FIX 7: Debounced localStorage writer — prevents I/O thrashing on rapid state changes
+function debouncedLocalStorage(key, delayMs = 500) {
+  let timer = null;
+  return (value) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { try { localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value)); } catch(e) {} timer = null; }, delayMs);
+  };
+}
+const _lsSaveFixtures = debouncedLocalStorage("lumina-fixtures", 500);
+const _lsSaveDmxPatch = debouncedLocalStorage("lumina-dmx-patch", 500);
+const _lsSaveParamFloors = debouncedLocalStorage("lumina-param-floors", 300);
+const _lsSaveMidiMap = debouncedLocalStorage("lumina-midi-map", 300);
+
 function scaleParam(paramId, logicalValue, bits) {
   const p = getParam(paramId);
   if (!p) return 0;
@@ -335,6 +346,117 @@ function buildDMXOverrides(liveValues, dmxPatch) {
     }
   }
   return overrides;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MIDI DEVICE PROFILES — auto-recognition & auto-mapping library
+// ═══════════════════════════════════════════════════════════════
+const MIDI_DEVICE_PROFILES = {
+  // --- PAD CONTROLLERS ---
+  "akai-apc-mini":     { match:["apc mini"],                  type:"pad",      brand:"Akai",     model:"APC Mini",        pads:{noteStart:0,noteEnd:63,rows:8,cols:8}, faders:{ccStart:48,ccEnd:56,count:9}, transport:null },
+  "akai-apc-mini-mk2": { match:["apc mini mk2"],              type:"pad",      brand:"Akai",     model:"APC Mini MK2",    pads:{noteStart:0,noteEnd:63,rows:8,cols:8}, faders:{ccStart:48,ccEnd:56,count:9}, transport:null },
+  "akai-apc40":        { match:["apc40","apc 40"],             type:"pad",      brand:"Akai",     model:"APC40",           pads:{noteStart:53,noteEnd:86,rows:5,cols:8}, faders:{ccStart:7,ccEnd:14,count:8}, transport:{play:91,stop:92,rec:93} },
+  "akai-apc40-mk2":    { match:["apc40 mk2","apc 40 mk2"],    type:"pad",      brand:"Akai",     model:"APC40 MK2",       pads:{noteStart:0,noteEnd:39,rows:5,cols:8}, faders:{ccStart:48,ccEnd:56,count:9}, transport:{play:91,stop:92,rec:93} },
+  "akai-mpd218":       { match:["mpd218"],                     type:"pad",      brand:"Akai",     model:"MPD218",          pads:{noteStart:36,noteEnd:51,rows:4,cols:4}, faders:null, transport:null },
+  "akai-mpd226":       { match:["mpd226"],                     type:"pad",      brand:"Akai",     model:"MPD226",          pads:{noteStart:36,noteEnd:51,rows:4,cols:4}, faders:{ccStart:1,ccEnd:4,count:4}, transport:null },
+  "novation-launchpad": { match:["launchpad mini","launchpad mk","launchpad x","launchpad pro","launchpad s"], type:"pad", brand:"Novation", model:"Launchpad",       pads:{noteStart:0,noteEnd:63,rows:8,cols:8}, faders:null, transport:null },
+  "novation-launchcontrol": { match:["launch control"],        type:"hybrid",   brand:"Novation", model:"Launch Control",  pads:{noteStart:9,noteEnd:24,rows:2,cols:8}, faders:{ccStart:21,ccEnd:28,count:8}, transport:null },
+  "ableton-push":      { match:["ableton push","push 2","push 3"], type:"pad",  brand:"Ableton",  model:"Push",            pads:{noteStart:36,noteEnd:99,rows:8,cols:8}, faders:null, transport:{play:85,stop:86,rec:87} },
+  "native-maschine":   { match:["maschine"],                   type:"pad",      brand:"Native Instruments", model:"Maschine", pads:{noteStart:36,noteEnd:51,rows:4,cols:4}, faders:null, transport:{play:110,stop:111,rec:112} },
+
+  // --- KEYBOARDS ---
+  "maudio-oxygen":     { match:["oxygen","oxygen pro"],        type:"keyboard", brand:"M-Audio",  model:"Oxygen",          keys:{noteStart:36,noteEnd:96}, faders:{ccStart:74,ccEnd:82,count:9}, transport:{play:118,stop:117,rec:119} },
+  "maudio-keystation": { match:["keystation"],                 type:"keyboard", brand:"M-Audio",  model:"Keystation",      keys:{noteStart:21,noteEnd:108}, faders:null, transport:null },
+  "akai-mpk-mini":     { match:["mpk mini"],                   type:"keyboard", brand:"Akai",     model:"MPK Mini",        keys:{noteStart:48,noteEnd:72}, faders:{ccStart:70,ccEnd:77,count:8}, transport:null },
+  "akai-mpk249":       { match:["mpk249","mpk261","mpk2"],     type:"keyboard", brand:"Akai",     model:"MPK2",            keys:{noteStart:21,noteEnd:108}, faders:{ccStart:12,ccEnd:19,count:8}, transport:{play:118,stop:117,rec:119} },
+  "arturia-keylab":    { match:["keylab"],                     type:"keyboard", brand:"Arturia",  model:"KeyLab",          keys:{noteStart:36,noteEnd:96}, faders:{ccStart:73,ccEnd:81,count:9}, transport:{play:118,stop:117,rec:119} },
+  "arturia-minilab":   { match:["minilab"],                    type:"keyboard", brand:"Arturia",  model:"MiniLab",         keys:{noteStart:36,noteEnd:72}, faders:{ccStart:7,ccEnd:14,count:8}, transport:null },
+  "novation-sl":       { match:["sl mkiii","sl mk3","novation sl"], type:"keyboard", brand:"Novation", model:"SL MkIII",   keys:{noteStart:36,noteEnd:96}, faders:{ccStart:41,ccEnd:48,count:8}, transport:{play:117,stop:116,rec:118} },
+  "korg-keystage":     { match:["keystage"],                   type:"keyboard", brand:"Korg",     model:"Keystage",        keys:{noteStart:36,noteEnd:96}, faders:null, transport:null },
+  "roland-a-series":   { match:["a-49","a-88","a-25","roland a-"], type:"keyboard", brand:"Roland", model:"A-Series",      keys:{noteStart:21,noteEnd:108}, faders:null, transport:null },
+  "generic-keyboard":  { match:["keyboard","piano","keys","midi keyboard"], type:"keyboard", brand:"Generic", model:"Keyboard", keys:{noteStart:36,noteEnd:96}, faders:null, transport:null },
+
+  // --- FADER/KNOB CONTROLLERS ---
+  "korg-nanokontrol":  { match:["nanokontrol","nanokontrol2"], type:"fader",    brand:"Korg",     model:"nanoKONTROL",     pads:null, faders:{ccStart:0,ccEnd:7,count:8}, transport:{play:41,stop:42,rec:45} },
+  "korg-nanokey":      { match:["nanokey"],                    type:"keyboard", brand:"Korg",     model:"nanoKEY",         keys:{noteStart:36,noteEnd:72}, faders:null, transport:null },
+  "korg-nanopad":      { match:["nanopad"],                    type:"pad",      brand:"Korg",     model:"nanoPAD",         pads:{noteStart:36,noteEnd:51,rows:4,cols:4}, faders:null, transport:null },
+  "behringer-xtouch":  { match:["x-touch","xtouch"],           type:"fader",    brand:"Behringer", model:"X-Touch",        pads:null, faders:{ccStart:1,ccEnd:8,count:8}, transport:{play:94,stop:93,rec:95} },
+  "behringer-bcr2000": { match:["bcr2000","bcr 2000"],         type:"knob",     brand:"Behringer", model:"BCR2000",        pads:null, faders:{ccStart:1,ccEnd:32,count:32}, transport:null },
+  "icon-platform":     { match:["platform m","icon platform"], type:"fader",    brand:"Icon",     model:"Platform M+",     pads:null, faders:{ccStart:0,ccEnd:8,count:9}, transport:{play:94,stop:93,rec:95} },
+
+  // --- DJ CONTROLLERS ---
+  "pioneer-ddj":       { match:["ddj","pioneer dj"],           type:"dj",       brand:"Pioneer",  model:"DDJ",             pads:{noteStart:36,noteEnd:51,rows:4,cols:4}, faders:{ccStart:0,ccEnd:5,count:6}, transport:null },
+  "numark-dj":         { match:["numark","party mix","dj2go"], type:"dj",       brand:"Numark",   model:"DJ Controller",   pads:{noteStart:36,noteEnd:43,rows:2,cols:4}, faders:{ccStart:0,ccEnd:3,count:4}, transport:null },
+
+  // --- GENERIC FALLBACK ---
+  "generic-controller": { match:[],                            type:"unknown",  brand:"Unknown",  model:"MIDI Controller",  pads:null, faders:null, transport:null }
+};
+
+// Device type display info
+const MIDI_DEVICE_TYPES = {
+  "pad":      { label:"PAD CONTROLLER",   icon:"\u25A3", color:"#ff8844" },
+  "keyboard": { label:"KEYBOARD",         icon:"\u266B", color:"#4488ff" },
+  "fader":    { label:"FADER CONTROLLER", icon:"\u2195", color:"#44ff88" },
+  "knob":     { label:"KNOB CONTROLLER",  icon:"\u25CE", color:"#44ddff" },
+  "hybrid":   { label:"HYBRID",           icon:"\u2726", color:"#cc66ff" },
+  "dj":       { label:"DJ CONTROLLER",    icon:"\u25B6", color:"#ff44aa" },
+  "unknown":  { label:"MIDI DEVICE",      icon:"\u266A", color:"#888" }
+};
+
+// Detect device profile from name string
+function detectMidiDevice(deviceName) {
+  if (!deviceName) return null;
+  const lower = deviceName.toLowerCase().trim();
+  for (const [profileId, profile] of Object.entries(MIDI_DEVICE_PROFILES)) {
+    if (profileId === "generic-controller") continue; // skip fallback
+    for (const keyword of profile.match) {
+      if (lower.includes(keyword)) {
+        return { profileId, ...profile, detectedName: deviceName };
+      }
+    }
+  }
+  // Fallback: return generic with the raw name
+  return { profileId: "generic-controller", ...MIDI_DEVICE_PROFILES["generic-controller"], detectedName: deviceName, model: deviceName };
+}
+
+// Build auto-map from device profile + fixture list
+function buildAutoMapFromProfile(profile, fixtures) {
+  const map = {};
+  if (!profile) return map;
+
+  if (profile.type === "keyboard" && profile.keys) {
+    // Map white keys to fixtures
+    const whiteKeys = [];
+    for (let n = profile.keys.noteStart; n <= profile.keys.noteEnd; n++) {
+      if ([0,2,4,5,7,9,11].includes(n % 12)) whiteKeys.push(n);
+    }
+    fixtures.forEach((fx, i) => { if (i < whiteKeys.length) map[whiteKeys[i]] = fx.id; });
+  } else if (profile.pads && profile.pads.noteStart !== undefined) {
+    // Map pads sequentially to fixtures
+    let padNote = profile.pads.noteStart;
+    fixtures.forEach((fx, i) => {
+      if (padNote + i <= profile.pads.noteEnd) map[padNote + i] = fx.id;
+    });
+  }
+
+  // Map transport buttons to actions
+  if (profile.transport) {
+    if (profile.transport.play) map[profile.transport.play] = "act:play";
+    if (profile.transport.stop) map[profile.transport.stop] = "act:stop";
+    if (profile.transport.rec) map[profile.transport.rec] = "act:rec";
+  }
+
+  // Map faders to black key actions or param control
+  if (profile.faders) {
+    for (let i = 0; i < profile.faders.count; i++) {
+      const cc = profile.faders.ccStart + i;
+      if (cc <= profile.faders.ccEnd) {
+        map["cc:" + cc] = "bk-0-" + i; // map to black keys for now
+      }
+    }
+  }
+
+  return map;
 }
 
 const BEAT_WIDTH=40, LANE_H=34, FIXTURE_HDR_H=28, GROUP_HDR_H=20, RULER_H=36, LABEL_W=130, PARAM_LABEL_W=100, TOTAL_BEATS=64;
@@ -1374,6 +1496,10 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
               const sel = effectType === et.id;
               slots.push(<button key={et.id} onClick={()=>setEffectType(et.id)} style={{...btnBase,background:sel?"#e8aa2220":"#0c0e12",border:"1px solid "+(sel?"#e8aa22":"#1e222a"),boxShadow:sel?"0 0 0 1px #e8aa2244, inset 0 1px 0 rgba(255,255,255,0.06)":"inset 0 1px 0 rgba(255,255,255,0.03)",color:sel?"#e8aa22":"#888",fontWeight:sel?"bold":"normal"}}><span style={{fontSize:26,lineHeight:1}}>{et.icon}</span><span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1,opacity:sel?1:0.7}}>{et.label}</span></button>);
             });
+            // Extra Custom Curve slot (col 2)
+            slots.push(<button key="custom2" onClick={()=>setEffectType("customCurve")} style={{...btnBase,background:effectType==="customCurve"?"#e8aa2220":"#0c0e12",border:"1px solid "+(effectType==="customCurve"?"#e8aa22":"#1e222a"),boxShadow:effectType==="customCurve"?"0 0 0 1px #e8aa2244":"inset 0 1px 0 rgba(255,255,255,0.03)",color:effectType==="customCurve"?"#e8aa22":"#888",fontWeight:effectType==="customCurve"?"bold":"normal"}}><span style={{fontSize:26,lineHeight:1}}>{"\u270E"}</span><span style={{fontSize:10,letterSpacing:0.4,lineHeight:1.1,opacity:effectType==="customCurve"?1:0.7}}>Custom 2</span></button>);
+            // APPLY FX button (col 3, under Fly Pan)
+            slots.push(<button key="apply-fx" onClick={handleApply} style={{...btnBase,background:"#22cc5530",border:"2px solid #22cc55",boxShadow:"0 0 0 1px #22cc5544",color:"#22cc55",fontWeight:"bold"}}><span style={{fontSize:22,lineHeight:1}}>{"\u2714"}</span><span style={{fontSize:10,letterSpacing:1,lineHeight:1.1}}>APPLY FX</span></button>);
           }
           return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>{slots}</div>;
         })()}
@@ -1447,7 +1573,7 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
         </div>
       </div>}
 
-      <button onClick={handleApply} style={{padding:"4px 0",background:"#e8aa2233",border:"2px solid #e8aa22",color:"#e8aa22",borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",letterSpacing:2}}>APPLY FX</button>
+      {/* APPLY FX button moved into effect type grid */}
 
 
       {conflictPopup && <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10005,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.7)",animation:"backdropIn 0.2s ease-out"}} onClick={()=>setConflictPopup(null)}>
@@ -1943,7 +2069,7 @@ const defaultCues = [
   {id:genId(),fixtureId:6,param:"yellow",beat:4,duration:8,value:100,easing:"bounce",fadeIn:0.4,fadeOut:0,startValue:0,endValue:0},
 ];
 
-const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect }) {
+const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues }) {
   const PADS_PER_PAGE = 19;
   const [padPage, setPadPage] = useState(0);
   const [activeParam, setActiveParam] = useState("dimmer");
@@ -2001,7 +2127,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
     midiActionsRef.current = {...midiActions,...localActionsRef.current};
   }, [midiActions, mode]);
 
-  useEffect(() => { midiMapRef.current = midiMap; localStorage.setItem("lumina-midi-map", JSON.stringify(midiMap)); }, [midiMap]);
+  useEffect(() => { midiMapRef.current = midiMap; _lsSaveMidiMap(midiMap); }, [midiMap]);
   useEffect(() => { midiLearnRef.current = midiLearn; }, [midiLearn]);
 
   const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -2274,7 +2400,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
 
   return (
     <div style={{background:"#110d0d",flexShrink:0,margin:"0 6px 6px",borderRadius:14,boxShadow:"0 -4px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)",overflow:"hidden"}}>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}@keyframes recglow{0%,100%{box-shadow:0 0 8px #ff220066}50%{box-shadow:0 0 18px #ff2200bb}}@keyframes midipulse{0%,100%{box-shadow:0 0 6px #aa44ff44}50%{box-shadow:0 0 14px #aa44ffaa}}@keyframes midilearn{0%,100%{box-shadow:0 0 8px #cc66ffaa}50%{box-shadow:0 0 20px #cc66ffff}}@keyframes outputoff{0%,100%{text-shadow:0 0 20px #ff0000,0 0 40px #ff000088,0 0 80px #ff000044;opacity:1}50%{text-shadow:0 0 8px #ff000066,0 0 20px #ff000033;opacity:0.6}}`}</style>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}@keyframes recglow{0%,100%{box-shadow:0 0 8px #ff220066}50%{box-shadow:0 0 18px #ff2200bb}}@keyframes midipulse{0%,100%{box-shadow:0 0 6px #aa44ff44}50%{box-shadow:0 0 14px #aa44ffaa}}@keyframes midilearn{0%,100%{box-shadow:0 0 8px #cc66ffaa}50%{box-shadow:0 0 20px #cc66ffff}}@keyframes outputoff{0%,100%{text-shadow:0 0 20px #ff0000,0 0 40px #ff000088,0 0 80px #ff000044;opacity:1}50%{text-shadow:0 0 8px #ff000066,0 0 20px #ff000033;opacity:0.6}}@keyframes soloBlink{0%,100%{box-shadow:0 0 14px #ffcc0066,0 6px 0 #111;border-color:#ffcc00}50%{box-shadow:0 0 24px #ffcc00bb,0 6px 0 #111;border-color:#ffee44}}@keyframes soloBadge{0%,100%{opacity:1;background:#ffcc0044}50%{opacity:0.5;background:#ffcc0022}}`}</style>
       <div style={{display:"flex",alignItems:"center",borderBottom:"1px solid #2a1a1a",padding:"4px 10px",gap:8,flexWrap:"wrap"}}>
         <div style={{fontSize:7,color:"#5a3f3f",letterSpacing:2,alignSelf:"center"}}>PARAM:</div>
         <div style={{display:"flex",gap:2,flexWrap:"wrap",flex:1}}>
@@ -2317,27 +2443,46 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const hasParam=hasCueForParam(fx.id);
             const isActive=isActiveCue(fx.id);
             const padVal=padValues[fx.id]??param.max;
-            const fillPct=isActive?Math.max(0,Math.min(1,(liveVal-param.min)/Math.max(1,param.max-param.min))):(padVal-param.min)/Math.max(1,param.max-param.min);
-            const glowStr=isActive?(0.3+dimVal*0.7):0;
             const pCol=param.color||fx.color;
-            const keyBg=isHeld?`linear-gradient(180deg,${pCol}dd,${pCol}88)`:isActive?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,${pCol}aa ${(1-fillPct)*100}%,${pCol}77 100%)`:`linear-gradient(180deg,#d4d8e0,#aeb4c0)`;
+            const laneKey=fx.id+"-"+activeParam;
+            const isMuted=mutedLanes&&mutedLanes.has(laneKey);
+            const isSoloed=soloLanes&&soloLanes.has(laneKey);
+            const hasAnySolo=soloLanes&&soloLanes.size>0;
+            const isSoloDimmed=hasAnySolo&&!isSoloed;
+            const hasFloor=paramFloors&&paramFloors[laneKey]!==undefined;
+            const hasOverride=paramOverrides&&paramOverrides[laneKey]!==undefined;
+            const pRange=Math.max(1,param.max-param.min);
+            // Use actual computed output value from liveValues (includes floor/park/mute)
+            const realVal=liveValues&&liveValues[laneKey]!==undefined?liveValues[laneKey]:undefined;
+            const displayVal=isMuted?0:realVal!==undefined?realVal:isActive&&liveVal!==undefined?liveVal:padVal;
+            const fillPct=isMuted?0:Math.max(0,Math.min(1,(displayVal-param.min)/pRange));
+            const glowStr=isActive?(0.3+dimVal*0.7):0;
+            const hasValue=realVal!==undefined&&realVal>0;
+            const fillColor=hasOverride?"#ff2244":hasFloor?"#00ff44":pCol;
+            const keyBg=isMuted?`linear-gradient(180deg,#2a1a1a,#1a0a0a)`:isHeld?`linear-gradient(180deg,${fillColor}dd,${fillColor}88)`:hasValue||isActive?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,${fillColor}aa ${(1-fillPct)*100}%,${fillColor}77 100%)`:`linear-gradient(180deg,#d4d8e0,#aeb4c0)`;
+            const padBorder=isMuted?"2px solid #ff440088":isSoloed?"2px solid #ffcc00":hasOverride?"2px solid #ff224488":hasFloor?"2px solid #00ff4488":isHeld?`2px solid ${fx.color}`:isActive?`1px solid ${fx.color}bb`:"1px solid #7a7e8a";
+            const padShadow=isMuted?"0 0 12px #ff440044,0 6px 0 #111":isSoloed?`0 0 14px #ffcc0066,0 6px 0 #111`:isHeld?`0 0 22px ${pCol}bb,0 4px 0 #000`:isActive?`0 0 ${10+glowStr*18}px ${pCol}77,0 6px 0 #111`:"0 6px 0 #111";
             return (
-              <div key={fx.id} style={{position:"absolute",left:x,top:0,width:WW}}>
+              <div key={fx.id} style={{position:"absolute",left:x,top:0,width:WW,opacity:isSoloDimmed?0.35:1,transition:"opacity 0.15s"}}>
                 <div onMouseDown={()=>{if(midiLearn==="waiting"){setMidiLearn(fx.id);return;}handlePadPress(fx.id);}} onMouseUp={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}} onMouseLeave={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}}
-                  style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:keyBg,border:isHeld?`2px solid ${fx.color}`:isActive?`1px solid ${fx.color}bb`:"1px solid #7a7e8a",boxShadow:isHeld?`0 0 22px ${pCol}bb,0 4px 0 #000`:isActive?`0 0 ${10+glowStr*18}px ${pCol}77,0 6px 0 #111`:"0 6px 0 #111",cursor:mode?"pointer":"default",position:"relative",overflow:"hidden",transform:isHeld?"translateY(3px)":"translateY(0)",transition:isHeld?"none":"all 0.06s",userSelect:"none"}}>
-                  <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:isActive?pCol:"rgba(0,0,0,0.18)",border:`1px solid ${fx.color}88`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:isActive?"#000":"#777"}}>{fx.id}</div>
+                  style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:keyBg,border:padBorder,boxShadow:padShadow,cursor:mode?"pointer":"default",position:"relative",overflow:"hidden",transform:isHeld?"translateY(3px)":"translateY(0)",transition:isHeld?"none":"all 0.06s",userSelect:"none",animation:isSoloed?"soloBlink 0.8s ease-in-out infinite":"none"}}>
+                  <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:isMuted?"#ff440033":isSoloed?"#ffcc0033":hasValue?fillColor+"33":"rgba(0,0,0,0.18)",border:isMuted?`1px solid #ff440066`:isSoloed?"1px solid #ffcc0066":`1px solid ${fx.color}88`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:isMuted?"#ff6633":isSoloed?"#ffcc00":hasValue?"#000":"#777"}}>{fx.id}</div>
                   <div style={{position:"absolute",top:28,left:0,right:0,bottom:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <div style={{writingMode:"vertical-lr",transform:"rotate(180deg)",fontSize:9,letterSpacing:1,color:isHeld?"#fff":isActive?"#111":"#555",fontWeight:isActive?"bold":"normal",whiteSpace:"nowrap",overflow:"hidden",maxHeight:40}}>{fx.name}</div>
+                    <div style={{writingMode:"vertical-lr",transform:"rotate(180deg)",fontSize:9,letterSpacing:1,color:isMuted?"#ff664466":isSoloed?"#ffcc00":isHeld?"#fff":hasOverride?"#ff2244":hasFloor?"#00ff44":hasValue?"#111":"#555",fontWeight:(hasValue||hasOverride||hasFloor||isSoloed)?"bold":"normal",whiteSpace:"nowrap",overflow:"hidden",maxHeight:40}}>{fx.name}</div>
                   </div>
-                  <div style={{position:"absolute",bottom:5,left:0,right:0,textAlign:"center",fontSize:8,fontWeight:"bold",color:isActive?"#111":"#666"}}>{isActive&&liveVal!==undefined?Math.round(liveVal):padVal}{param.unit}</div>
+                  <div style={{position:"absolute",bottom:5,left:0,right:0,textAlign:"center",fontSize:8,fontWeight:"bold",color:isMuted?"#ff440066":hasOverride?"#ff2244":hasFloor?"#00ff44":hasValue?"#111":"#666"}}>{isMuted?"B.O":Math.round(displayVal)}{!isMuted&&param.unit}</div>
                   {mode==="rec"&&<div style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ff2200",animation:"pulse 1s infinite"}}/>}
                   {mode==="erase"&&hasParam&&<div style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ff6600"}}/>}
+                  {isMuted&&<div style={{position:"absolute",inset:0,background:"repeating-linear-gradient(45deg,transparent,transparent 3px,#ff440011 3px,#ff440011 6px)",borderRadius:"3px 3px 8px 8px",pointerEvents:"none",zIndex:2}}/>}
+                  {hasFloor&&<div style={{position:"absolute",bottom:14,left:3,padding:"0 2px",fontSize:6,fontWeight:"bold",color:"#00ff44",background:"#00ff4422",border:"1px solid #00ff4444",borderRadius:2,lineHeight:"10px",zIndex:3}}>FLR</div>}
+                  {hasOverride&&!isMuted&&<div style={{position:"absolute",bottom:14,right:3,padding:"0 2px",fontSize:6,fontWeight:"bold",color:"#ff2244",background:"#ff002222",border:"1px solid #ff002244",borderRadius:2,lineHeight:"10px",zIndex:3}}>PRK</div>}
+                  {isSoloed&&<div style={{position:"absolute",top:4,right:4,padding:"0 2px",fontSize:6,fontWeight:"bold",color:"#ffcc00",background:"#ffcc0044",border:"1px solid #ffcc0066",borderRadius:2,lineHeight:"10px",zIndex:3,animation:"soloBadge 0.8s ease-in-out infinite"}}>SOL</div>}
                   {midiLearn===fx.id&&<div style={{position:"absolute",inset:0,borderRadius:"3px 3px 8px 8px",border:"2px solid #cc66ff",animation:"midilearn 0.8s infinite",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(170,68,255,0.15)",zIndex:5}}><span style={{fontSize:8,color:"#cc66ff",fontWeight:"bold"}}>PRESS KEY</span></div>}
                   {reverseMidiMap[fx.id]!==undefined&&midiLearn!==fx.id&&<div style={{position:"absolute",top:4,left:4,padding:"1px 3px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:7,color:"#bb88ee",fontWeight:"bold",zIndex:4}}>{midiKeyLabel(reverseMidiMap[fx.id])}</div>}
-                  <div style={{position:"absolute",bottom:0,left:4,right:4,height:3,borderRadius:"0 0 6px 6px",background:isHeld?pCol+"88":isActive?pCol+"55":"rgba(0,0,0,0.1)"}}/>
+                  <div style={{position:"absolute",bottom:0,left:4,right:4,height:3,borderRadius:"0 0 6px 6px",background:isMuted?"#ff440044":hasOverride?"#ff224466":hasFloor?"#00ff4466":isHeld?pCol+"88":hasValue?pCol+"55":"rgba(0,0,0,0.1)"}}/>
                 </div>
                 <div style={{marginTop:4,height:3,background:"#0c0e12",borderRadius:2,overflow:"hidden"}}>
-                  <div style={{height:"100%",width:isActive?`${fillPct*100}%`:hasParam?"100%":"0%",background:isActive?param.color:param.color+"33",borderRadius:2,transition:"width 0.05s"}}/>
+                  <div style={{height:"100%",width:fillPct>0?`${fillPct*100}%`:hasParam?"100%":"0%",background:isMuted?"#ff440033":hasOverride?"#ff224466":hasFloor?"#00ff4466":hasValue?param.color:param.color+"33",borderRadius:2,transition:"width 0.05s"}}/>
                 </div>
               </div>
             );
@@ -2675,7 +2820,7 @@ const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,p
         <div onClick={onFloorClick} className={hasFloor?"floor-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:hasFloor?"#00ff4418":"transparent",border:hasFloor?"1px solid #00ff4455":"1px solid #1e2230",color:hasFloor?"#00ff44":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Floor (min level)">{hasFloor?floorVal:"FLR"}</div>
         <div onClick={onValueClick} className={overrideVal!==undefined?"park-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:overrideVal!==undefined?"#ff002218":"transparent",border:overrideVal!==undefined?"1px solid #ff002255":"1px solid #1e2230",color:overrideVal!==undefined?"#ff2244":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Park (fixed value)">{overrideVal!==undefined?overrideVal:"PRK"}</div>
         <button onClick={onMuteToggle} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:isMuted?"#ff440028":"transparent",border:isMuted?"1px solid #ff440066":"1px solid #1e2230",color:isMuted?"#ff6633":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Blackout">B.O</button>
-        <button onClick={onSoloToggle} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:isSoloed?"#ffcc0028":"transparent",border:isSoloed?"1px solid #ffcc0066":"1px solid #1e2230",color:isSoloed?"#ffcc00":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Solo">SOL</button>
+        <button onClick={onSoloToggle} className={isSoloed?"solo-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:isSoloed?"#ffcc0028":"transparent",border:isSoloed?"1px solid #ffcc0066":"1px solid #1e2230",color:isSoloed?"#ffcc00":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Solo">SOL</button>
         <button onClick={onLmeToggle} className={lmeAssigned?'lme-flash':''} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:lmeAssigned?"#00ffee18":"transparent",border:lmeAssigned?"1px solid #00ffee55":"1px solid #1e2230",color:lmeAssigned?"#00ffee":"#334",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="LME">LME</button>
       </div>
       <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
@@ -2808,42 +2953,36 @@ function LightingTimeline() {
   useEffect(()=>{localStorage.setItem("lumina-midi-value-mode",midiValueMode);},[midiValueMode]);
   useEffect(()=>{localStorage.setItem("lumina-midi-live",midiLiveMode?"true":"false");},[midiLiveMode]);
   useEffect(()=>{localStorage.setItem("lumina-midi-relative",midiRelativeMode?"true":"false");midiRelativeRef.current=midiRelativeMode;window.__midiLearnState.relative=midiRelativeMode;},[midiRelativeMode]);
+  const [midiDetectedDevice, setMidiDetectedDevice] = useState(null); // { profileId, type, brand, model, detectedName, ... }
   const midiAccessRef = useRef(null);
   const serverMidiRef = useRef(false); // true = using server-side MIDI
+  const [midiStatus, setMidiStatus] = useState('');
   const toggleMidi = useCallback(async () => {
     if (midiConnected) {
       // Disconnect
-      if (serverMidiRef.current) {
-        // Close server-side MIDI via global WS ref
-        const ws = window.__luminaOutputWs;
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'midi_close'}));
-        serverMidiRef.current = false;
-      } else if (midiAccessRef.current) {
+      const ws = window.__luminaOutputWs;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'midi_close'}));
+      serverMidiRef.current = false;
+      if (midiAccessRef.current) {
         midiAccessRef.current.inputs.forEach(input => { input.onmidimessage = null; });
         midiAccessRef.current = null;
       }
       setMidiConnected(false);
+      setMidiDetectedDevice(null);
       setMidiLearn(null);
+      setMidiStatus('');
       return;
     }
-    // Try browser WebMIDI first
-    if (navigator.requestMIDIAccess) {
-      try {
-        const access = await navigator.requestMIDIAccess({sysex: false});
-        midiAccessRef.current = access;
-        serverMidiRef.current = false;
-        setMidiConnected(true);
-        return;
-      } catch(err) { /* fall through to server MIDI */ }
-    }
-    // Fall back to server-side MIDI via global WS ref
+    // Server-side MIDI via WebSocket
     const ws = window.__luminaOutputWs;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({type:'midi_scan'}));
-      serverMidiRef.current = true;
-    } else {
-      alert("MIDI not available: no browser support and no server connection.");
+    if (!ws || ws.readyState !== 1) {
+      setMidiStatus('Server not connected');
+      setTimeout(() => setMidiStatus(''), 3000);
+      return;
     }
+    setMidiStatus('Scanning...');
+    ws.send(JSON.stringify({type:'midi_scan'}));
+    serverMidiRef.current = true;
   }, [midiConnected]);
   const [fixtures, setFixtures] = useState(() => { try { return JSON.parse(localStorage.getItem("lumina-fixtures")) || defaultFixtures(); } catch(e) { return defaultFixtures(); } });
   useEffect(()=>{
@@ -2857,6 +2996,23 @@ function LightingTimeline() {
       return newMap;
     });
   },[fixtures.length, midiAutoMap]);
+  // Auto-map from detected device profile on connect
+  useEffect(()=>{
+    if(!midiDetectedDevice || !midiAutoMap) return;
+    if(midiDetectedDevice.profileId === "generic-controller") return; // don't auto-map unknown devices
+    const autoMap = buildAutoMapFromProfile(midiDetectedDevice, fixtures);
+    if(Object.keys(autoMap).length > 0){
+      setMidiMap(prev => {
+        const newMap = {...prev};
+        // Clear old fixture note mappings (numbers) but keep action/cc mappings that user set manually
+        Object.keys(newMap).forEach(k => { const v = newMap[k]; if(typeof v === "number") delete newMap[k]; });
+        // Apply profile mappings
+        Object.entries(autoMap).forEach(([k,v]) => { newMap[k] = v; });
+        return newMap;
+      });
+      console.log('[MIDI] Auto-mapped', Object.keys(autoMap).length, 'controls from', midiDetectedDevice.brand, midiDetectedDevice.model);
+    }
+  },[midiDetectedDevice]);
   const [fixtureManagerOpen, setFixtureManagerOpen] = useState(false);
   const [fixtureBuilderOpen, setFixtureBuilderOpen] = useState(false);
   const [builderName, setBuilderName] = useState("");
@@ -2898,7 +3054,7 @@ function LightingTimeline() {
   const [mvrLoading, setMvrLoading] = useState(false);
   const [mvrPosDropdown, setMvrPosDropdown] = useState(null); // uuid of open dropdown
   const [displayScale, setDisplayScale] = useState(()=>{ try { return parseFloat(localStorage.getItem("lumina-display-scale"))||1; } catch(e){ return 1; } });
-  useEffect(() => { localStorage.setItem("lumina-fixtures", JSON.stringify(fixtures)); }, [fixtures]);
+  useEffect(() => { _lsSaveFixtures(fixtures); }, [fixtures]);
   useEffect(() => { localStorage.setItem("lumina-display-scale", String(displayScale)); }, [displayScale]);
   const [cues,setCuesRaw] = useState(defaultCues);
   const undoHistoryRef = useRef([]);
@@ -3209,7 +3365,7 @@ function LightingTimeline() {
     window.__lmeState.assignedRef = lmeAssignedRef;
     window.__lmeState.setOverride = setParamOverrides;
   }, [setParamOverrides]);
-  useEffect(()=>{ localStorage.setItem("lumina-param-floors", JSON.stringify(paramFloors)); },[paramFloors]);
+  useEffect(()=>{ _lsSaveParamFloors(paramFloors); },[paramFloors]);
   const paramFloorsRef = useRef(paramFloors);
   useEffect(()=>{ paramFloorsRef.current = paramFloors; },[paramFloors]);
   const [sequenceStorage,setSequenceStorage] = useState(()=>{const s={};SEQ_CATS.forEach(c=>{s[c.id]=new Array(25).fill(null);});return s;});
@@ -3368,7 +3524,7 @@ function LightingTimeline() {
     }
     return conflicts;
   }, [dmxPatch]);
-  useEffect(() => { dmxPatchRef.current = dmxPatch; localStorage.setItem("lumina-dmx-patch", JSON.stringify(dmxPatch)); }, [dmxPatch]);
+  useEffect(() => { dmxPatchRef.current = dmxPatch; _lsSaveDmxPatch(dmxPatch); }, [dmxPatch]);
   useEffect(() => {
     universeRoutingRef.current = universeRouting;
     localStorage.setItem("lumina-universe-routing", JSON.stringify(universeRouting));
@@ -3666,6 +3822,10 @@ function LightingTimeline() {
   const timelineRef=useRef(null), animRef=useRef(null), lastTimeRef=useRef(null), stateRef=useRef({}), playheadRef=useRef(0), lastVisualUpdateRef=useRef(0);
   const scrollTopRef=useRef(0), viewportHRef=useRef(800);
   const cuesRef=useRef(cues); cuesRef.current=cues;
+  const fxStartRef=useRef(fxStart); fxStartRef.current=fxStart;
+  const fxEndRef=useRef(fxEnd); fxEndRef.current=fxEnd;
+  const copyModeRef=useRef(copyMode); copyModeRef.current=copyMode;
+  const copiedCuesRef=useRef(copiedCues); copiedCuesRef.current=copiedCues;
   const rowsRef=useRef([]); // updated in rows useMemo
   const zoomRef=useRef(zoom); zoomRef.current=zoom;
   const snapToGridRef=useRef(snapToGrid); snapToGridRef.current=snapToGrid;
@@ -3829,11 +3989,20 @@ function LightingTimeline() {
   },[cueIndex,displayPlayhead,mutedLanes,soloLanes,paramFloors,paramOverrides]);
 
   // Precompute which fixtures have active values (O(1) lookup instead of O(n) scan per fixture row)
+  // PERF FIX 6: Stable activeFixtures identity — only create new Set when contents actually change
+  const prevActiveFixturesRef = useRef(new Set());
   const activeFixtures = useMemo(() => {
     const set = new Set();
     for (const [k, v] of Object.entries(liveValues)) {
-      if (v > 0) set.add(k.split('-')[0]);
+      if (v > 0) set.add(k.substring(0, k.indexOf('-')));
     }
+    const prev = prevActiveFixturesRef.current;
+    if (set.size === prev.size) {
+      let same = true;
+      for (const id of set) { if (!prev.has(id)) { same = false; break; } }
+      if (same) return prev;
+    }
+    prevActiveFixturesRef.current = set;
     return set;
   }, [liveValues]);
 
@@ -3864,18 +4033,24 @@ function LightingTimeline() {
             // Server-side MIDI messages
             if (msg.type === 'midi_ports' && msg.ports) {
               if (msg.ports.length > 0 && msg.activePort < 0) {
-                // Auto-open first port
+                setMidiStatus('Found ' + msg.ports.length + ' device(s), connecting...');
                 ws.send(JSON.stringify({type:'midi_open', port: 0}));
               } else if (msg.ports.length === 0) {
-                alert('No MIDI devices found on server.');
+                setMidiStatus('No MIDI devices found');
+                serverMidiRef.current = false;
+                setTimeout(() => setMidiStatus(''), 3000);
               }
             }
             if (msg.type === 'midi_status') {
               if (msg.ok && msg.name) {
                 setMidiConnected(true);
-                console.log('[MIDI] Server connected:', msg.name);
+                setMidiStatus('');
+                const profile = detectMidiDevice(msg.name);
+                setMidiDetectedDevice(profile);
               } else if (msg.error) {
-                console.warn('[MIDI] Server error:', msg.error);
+                setMidiStatus('MIDI error: ' + msg.error);
+                serverMidiRef.current = false;
+                setTimeout(() => setMidiStatus(''), 3000);
               }
             }
             if (msg.type === 'midi_message' && msg.data && window.__serverMidiHandler) {
@@ -4120,6 +4295,36 @@ function LightingTimeline() {
     setFocusExpandedFx(new Set()); // reset per-fixture overrides
     setExpandedFixtures(new Set(fixtures.map(fx => fx.id))); // ensure all fixtures are open so param lane shows
   }, [fixtures]);
+
+  // PERF FIX 5: Stable midiActions via refs — prevents FixturePadBar re-render on every state change
+  const stableMidiActions = useMemo(() => ({
+    "act:play":(()=>{let last=0;return()=>{const now=Date.now();if(now-last<200)return;last=now;setPlaying(p=>{if(!p&&stateRef.current.audioMode!=="none")audioEngineRef.current?.ensureContext();return!p;});};})(),
+    "act:stop":()=>{setPlaying(false);playheadRef.current=stateRef.current.loopStart;setDisplayPlayhead(stateRef.current.loopStart);audioEngineRef.current?.stopFilePlayback();},
+    "act:rewind":()=>{playheadRef.current=0;setDisplayPlayhead(0);if(stateRef.current.audioMode==="file"&&playingRef.current)audioEngineRef.current?.seekTo(0);},
+    "act:loop":()=>setLoopEnabled(v=>!v),
+    "act:snap":()=>setSnapToGrid(v=>!v),
+    "act:edit":()=>setTool("select"),
+    "act:draw":()=>setTool("draw"),
+    "act:copy":()=>{if(copyModeRef.current){setCopyMode(false);setCopiedCues(null);}else{setCopyMode(true);const sc=selectedCuesRef.current;const c=cuesRef.current;const sel=sc.size>0?c.filter(x=>sc.has(x.id)):selectedCueRef.current?c.filter(x=>x.id===selectedCueRef.current):[];if(sel.length>0)setCopiedCues(sel.map(x=>({...x,id:null})));}},
+    "act:undo":handleGlobalUndo,
+    "act:redo":handleGlobalRedo,
+    "act:loop_in":()=>{playheadRef.current=stateRef.current.loopStart;setDisplayPlayhead(stateRef.current.loopStart);if(stateRef.current.audioMode==="file"&&playingRef.current)audioEngineRef.current?.seekTo(stateRef.current.loopStart);},
+    "act:loop_out":()=>{setLoopEnabled(false);playheadRef.current=stateRef.current.loopEnd;setDisplayPlayhead(stateRef.current.loopEnd);if(stateRef.current.audioMode==="file"&&playingRef.current)audioEngineRef.current?.seekTo(stateRef.current.loopEnd);},
+    "act:tap":handleTap,
+    "pad-selfix":()=>{const sc=selectedCuesRef.current;const c=cuesRef.current;if(sc.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(c.map(x=>x.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=c.filter(x=>sc.has(x.id));const params=new Set(sel.map(x=>x.param));const fxIds=new Set(sel.map(x=>x.fixtureId));const newSel=new Set();c.forEach(x=>{if(fxIds.has(x.fixtureId)&&params.has(x.param))newSel.add(x.id);});setSelectedCues(newSel);},
+    "pad-dup":()=>{const len=fxEndRef.current-fxStartRef.current;setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(s=>s+(fxEndRef.current-fxStartRef.current));setFxEnd(s=>s+(fxEndRef.current-fxStartRef.current));setSelectedCues(new Set());flashScreen("#ff8844");},
+    "pad-delete":()=>{setCues(prev=>prev.filter(c=>!selectedCuesRef.current.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},
+    "pad-selall":()=>{const sc=selectedCuesRef.current;const c=cuesRef.current;if(sc.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(c.map(x=>x.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=c.filter(x=>sc.has(x.id));const params=new Set(sel.map(x=>x.param));const newSel=new Set();c.forEach(x=>{if(params.has(x.param))newSel.add(x.id);});setSelectedCues(newSel);},
+    "pad-dupfx":()=>{const len=fxEndRef.current-fxStartRef.current;setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id)&&c.beat>=fxStartRef.current&&c.beat<fxEndRef.current);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(s=>s+(fxEndRef.current-fxStartRef.current));setFxEnd(s=>s+(fxEndRef.current-fxStartRef.current));setSelectedCues(new Set());},
+    "pad-reverse":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id));if(sel.length<1)return prev;const minB=Math.min(...sel.map(c=>c.beat));const maxB=Math.max(...sel.map(c=>c.beat));if(minB===maxB&&sel.length>1){const vals=sel.map(c=>c.value);const revVals=[...vals].reverse();const ids=sel.map(c=>c.id);return prev.map(c=>{const idx=ids.indexOf(c.id);return idx>=0?{...c,value:revVals[idx]}:c;});}const updates={};sel.forEach(c=>{updates[c.id]={beat:minB+maxB-c.beat};if(c.startValue!==undefined&&c.endValue!==undefined){updates[c.id].startValue=c.endValue;updates[c.id].endValue=c.startValue;}if(c.autoPoints&&c.autoPoints.length>0){const maxT=Math.max(...c.autoPoints.map(p=>p.t));updates[c.id].autoPoints=c.autoPoints.map(p=>({...p,t:maxT-p.t})).reverse();}});return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);});flashScreen("#4488ff");},
+    "pad-full":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id));if(sel.length===0)return prev;const maxVal=Math.max(...sel.map(c=>c.value));if(maxVal===0)return prev;const groups={};sel.forEach(c=>{const p=getParam(c.param);if(p)groups[c.param]=p;});return prev.map(c=>{if(!selectedCuesRef.current.has(c.id))return c;const p=groups[c.param];if(!p)return c;const scale=p.max/maxVal;const nc={...c,value:Math.round(c.value*scale)};if(c.startValue!==undefined)nc.startValue=Math.round(c.startValue*scale);if(c.endValue!==undefined)nc.endValue=Math.round(c.endValue*scale);if(c.autoPoints)nc.autoPoints=c.autoPoints.map(pt=>({...pt,v:Math.round(pt.v*scale)}));return nc;});});},
+    "pad-goto":()=>{const target=fxStartRef.current||0;setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id));if(sel.length===0)return prev;const ids=new Set(sel.map(c=>c.id));const byLane={};sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,laneCues])=>{laneCues.sort((a,b)=>a.beat-b.beat);offsets[k]=target-laneCues[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});});},
+    "pad-dissolve":handleDissolve,
+    "pad-split":()=>{setSplitMode(true);setPopupPos(null);},
+    "pad-black":()=>{const c=cuesRef.current;const sc=selectedCuesRef.current;const anyMuted=c.filter(x=>sc.has(x.id)).some(x=>x.muted);setCues(prev=>prev.map(x=>sc.has(x.id)?{...x,muted:!anyMuted}:x));},
+    "pad-quant":()=>{const sc=selectedCuesRef.current;setCues(prev=>prev.map(c=>sc.has(c.id)?{...c,beat:Math.round(c.beat),duration:Math.max(0.25,Math.round(c.duration*4)/4)}:c));},
+    "pad-invert":()=>{const sc=selectedCuesRef.current;setCues(prev=>prev.map(c=>{if(!sc.has(c.id))return c;const p=getParam(c.param);if(!p)return c;const inv=v=>p.max-(v-p.min);const nc={...c,value:inv(c.value)};if(c.startValue!==undefined)nc.startValue=inv(c.startValue);if(c.endValue!==undefined)nc.endValue=inv(c.endValue);return nc;}));}
+  }), []); // empty deps = created once, reads from refs
 
   const handleGridTouchStart=e=>{
     if(e.touches.length===2){e.preventDefault();return;}
@@ -4525,16 +4730,16 @@ function LightingTimeline() {
           </div>
           {!timeSliderOpen&&!fanSliderOpen&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
             {[
-              /* Row 1: SEL FIX white, HALF green, DUP orange, DELETE red */
+              /* Row 1: SEL FIX white, TIME green, SPLIT orange, DELETE red */
               {label:"\u25A8",sub:"SEL FIX",mid:"pad-selfix",color:"#ffffff",action:()=>{if(selectedCues.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const fxIds=new Set(sel.map(c=>c.fixtureId));const newSel=new Set();cues.forEach(c=>{if(fxIds.has(c.fixtureId)&&params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},need:0},
               {label:"\u29D6",sub:"TIME",mid:"pad-time",color:"#44cc44",action:()=>{setTimeSliderOpen(prev=>{if(!prev)setTimeScaleVal(50);return!prev;});},need:1},
-              {label:"\u29C9",sub:"DUP",mid:"pad-dup",color:"#ff8844",action:()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];},"duplicate cues");setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());flashScreen("#ff8844");},need:1},
+              {label:"\u2702",sub:"SPLIT",mid:"pad-split",color:"#ff8844",action:()=>{setSplitMode(true);setPopupPos(null);},need:1},
               {label:"\u2716",sub:"DELETE",mid:"pad-delete",color:"#ff4444",action:()=>{setCues(prev=>prev.filter(c=>!selectedCues.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},need:1},
               /* Row 2: SEL ALL white, DOUBLE green, DUP FX orange, REVERSE blue */
               {label:"\u25A8",sub:"SEL ALL",mid:"pad-selall",color:"#ffffff",action:()=>{if(selectedCues.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const newSel=new Set();cues.forEach(c=>{if(params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},need:0},
               /* DOUBLE removed — merged into TIME slider */
               {label:"\u29C9",sub:"DUP FX",mid:"pad-dupfx",color:"#ff8844",action:()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id)&&c.beat>=fxStart&&c.beat<fxEnd);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());},need:1},
-              {label:"\u21C4",sub:"REVERSE",mid:"pad-reverse",color:"#4488ff",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length<1)return prev;const updates={};sel.forEach(c=>{const u={};if(c.startValue!==undefined&&c.endValue!==undefined){u.startValue=c.endValue;u.endValue=c.startValue;}else if(c.startValue!==undefined){u.endValue=c.startValue;u.startValue=c.value;u.value=c.startValue;}if(c.autoPoints&&c.autoPoints.length>0){const maxT=Math.max(...c.autoPoints.map(p=>p.t));u.autoPoints=c.autoPoints.map(p=>({...p,t:maxT-p.t})).reverse();}updates[c.id]=u;});const groups={};sel.forEach(c=>{const k=c.fixtureId+"-"+c.param;if(!groups[k])groups[k]=[];groups[k].push(c);});Object.values(groups).forEach(g=>{if(g.length<2)return;g.sort((a,b)=>a.beat-b.beat);const vals=g.map(c=>c.value);const revVals=[...vals].reverse();g.forEach((c,i)=>{if(!updates[c.id])updates[c.id]={};updates[c.id].value=revVals[i];});});if(Object.keys(updates).length===0)return prev;return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);},"reverse values");flashScreen("#4488ff");},need:1},
+              {label:"\u21C4",sub:"REVERSE",mid:"pad-reverse",color:"#4488ff",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length<1)return prev;const minB=Math.min(...sel.map(c=>c.beat));const maxB=Math.max(...sel.map(c=>c.beat));if(minB===maxB&&sel.length>1){const vals=sel.map(c=>c.value);const revVals=[...vals].reverse();const ids=sel.map(c=>c.id);return prev.map(c=>{const idx=ids.indexOf(c.id);return idx>=0?{...c,value:revVals[idx]}:c;});}const updates={};sel.forEach(c=>{updates[c.id]={beat:minB+maxB-c.beat};if(c.startValue!==undefined&&c.endValue!==undefined){updates[c.id].startValue=c.endValue;updates[c.id].endValue=c.startValue;}if(c.autoPoints&&c.autoPoints.length>0){const maxT=Math.max(...c.autoPoints.map(p=>p.t));updates[c.id].autoPoints=c.autoPoints.map(p=>({...p,t:maxT-p.t})).reverse();}});return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);});flashScreen("#4488ff");},need:1},
               /* Row 3: FULL white, ALIGN L green, DISSOLVE blue, CLEAR orange */
               {label:"@",sub:"FULL",mid:"pad-full",color:"#ffffff",action:()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const maxVal=Math.max(...sel.map(c=>c.value));if(maxVal===0)return prev;const groups={};sel.forEach(c=>{const p=getParam(c.param);if(p)groups[c.param]=p;});return prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=groups[c.param];if(!p)return c;const scale=p.max/maxVal;const nc={...c,value:Math.round(c.value*scale)};if(c.startValue!==undefined)nc.startValue=Math.round(c.startValue*scale);if(c.endValue!==undefined)nc.endValue=Math.round(c.endValue*scale);if(c.autoPoints)nc.autoPoints=c.autoPoints.map(pt=>({...pt,v:Math.round(pt.v*scale)}));return nc;});});},need:1},
               {label:"\u25B8\u2502",sub:"GOTO",mid:"pad-goto",color:"#44cc44",action:()=>{
@@ -4546,7 +4751,7 @@ function LightingTimeline() {
                 setCues(prev=>{const s=prev.filter(c=>selectedCues.has(c.id));if(s.length===0)return prev;const ids=new Set(s.map(c=>c.id));const byLane={};s.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,lc])=>{lc.sort((a,b)=>a.beat-b.beat);offsets[k]=target-lc[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});},"goto");
               },need:1},
               {label:"\u223F",sub:"DISSOLVE",mid:"pad-dissolve",color:"#4488ff",action:handleDissolve,need:2},
-              {label:"\u2702",sub:"SPLIT",mid:"pad-split",color:"#ff8844",action:()=>{setSplitMode(true);setPopupPos(null);},need:1},
+              {label:"\u29C9",sub:"DUP",mid:"pad-dup",color:"#ff8844",action:()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];},"duplicate cues");setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());flashScreen("#ff8844");},need:1},
               /* Row 4: BLACK black, ALIGN R green, QUANT blue, INVERT blue */
               (()=>{const anyMuted=cues.filter(c=>selectedCues.has(c.id)).some(c=>c.muted);return{label:anyMuted?"\uD83D\uDD0A":"\uD83D\uDD07",sub:anyMuted?"UNMUTE":"BLACK",mid:"pad-black",color:"#888888",action:()=>{setCues(prev=>prev.map(c=>selectedCues.has(c.id)?{...c,muted:!anyMuted}:c));},need:1};})(),
               /* NUDGE disabled — kept for future use: {label:"\u25B6",sub:"NUDGE",mid:"pad-nudge",color:"#44cc44",action:()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+1}:c);});},need:1}, */
@@ -4866,9 +5071,9 @@ function LightingTimeline() {
             <span style={{color:masterLevel>=100?"#44ffaa":masterLevel===0?"#ff4444":"#ffaa44",fontWeight:"bold",fontSize:13,letterSpacing:4,lineHeight:1,animation:masterLevel===0?"masterblink 0.5s ease-in-out infinite":"none"}}>FX</span>
             <span style={{fontSize:8,color:masterLevel>=100?"rgba(68,255,170,0.4)":masterLevel===0?"#ff4444":"rgba(255,170,68,0.4)",fontWeight:"bold",letterSpacing:1}}>{masterLevel}%</span>
           </div>
-          {masterSliderOpen&&<><div onClick={e=>{e.stopPropagation();setMasterSliderOpen(false);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:998}}/><div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,background:"#0c0e12",border:"1px solid #cc994444",borderRadius:6,padding:"10px 14px",zIndex:999,width:400,boxShadow:"0 4px 20px rgba(0,0,0,0.6)"}}>
+          {(masterSliderOpen||midiLearn)&&<><div onClick={e=>{e.stopPropagation();setMasterSliderOpen(false);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:998}}/><div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,background:"#0c0e12",border:midiLearn?"1px solid #aa44ff44":"1px solid #cc994444",borderRadius:6,padding:"10px 14px",zIndex:999,width:400,boxShadow:"0 4px 20px rgba(0,0,0,0.6)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <span style={{fontSize:11,color:"#cc994488",letterSpacing:2}}>MASTER LEVEL</span>
+              <span style={{fontSize:11,color:midiLearn?"#aa44ff88":"#cc994488",letterSpacing:2}}>MASTER LEVEL{midiLearn?" — MIDI LEARN":""}</span>
               <span style={{fontSize:16,color:masterLevel===0?"#ff4444":"#cc9944",fontWeight:"bold"}}>{masterLevel}%</span>
             </div>
             <div style={{padding:"4px 0"}}><GlowSlider min={0} max={100} step={1} value={masterLevel} onChange={setMasterLevel} color="#cc9944" label="MASTER" midiId="master-level"/></div>
@@ -4952,7 +5157,7 @@ function LightingTimeline() {
             </div>
             <button onClick={e=>{const r=e.currentTarget.getBoundingClientRect();setKeypadState({field:'goto',value:String(Math.floor(displayPlayhead/4)+1),rect:{top:r.bottom+2,left:r.left}});}} style={{background:keypadState?.field==='goto'?"#cc9944":"#1e1c16",border:"1px solid "+(keypadState?.field==='goto'?"#cc9944":"#3a3020"),color:keypadState?.field==='goto'?"#111":"#c0c6d0",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11}}>{"▸|"} GOTO</button>
             <div style={{flex:1}}/>
-            <button onClick={midiBtn("act:viz",()=>{window.open('/viz','lumina-viz','width=1200,height=700');})} style={{position:"relative",background:midiLearn==="act:viz"?"#2a1a30":"#1e222a",border:"1px solid "+(midiLearn==="act:viz"?"#aa44ff":"#3a6adf44"),color:"#3a6adf",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,animation:midiLearn==="act:viz"?"midipulse 1.2s infinite":"none"}} title="Open Visualizer">{"\uD83D\uDCA1"} VIZ{midiTag("act:viz")&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiTag("act:viz")}</span>}</button>
+            <button onClick={midiBtn("act:viz",()=>{if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.lumina){window.webkit.messageHandlers.lumina.postMessage({action:'openViz'});}else{window.open(window.location.origin+'/viz','lumina-viz','width=1200,height=700');}})} style={{position:"relative",background:midiLearn==="act:viz"?"#2a1a30":"#1e222a",border:"1px solid "+(midiLearn==="act:viz"?"#aa44ff":"#3a6adf44"),color:"#3a6adf",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,animation:midiLearn==="act:viz"?"midipulse 1.2s infinite":"none"}} title="Open Visualizer">{"\uD83D\uDCA1"} VIZ{midiTag("act:viz")&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiTag("act:viz")}</span>}</button>
           </div>
           {/* Row 2: Loop locators wrapped, ZOOM */}
           <div style={{display:"flex",alignItems:"center",padding:"3px 8px",gap:6,borderTop:"1px solid rgba(255,255,255,0.03)"}}>
@@ -5077,37 +5282,7 @@ function LightingTimeline() {
             {boxSelect&&(()=>{const x1=Math.min(boxSelect.startX,boxSelect.curX),x2=Math.max(boxSelect.startX,boxSelect.curX),y1=Math.min(boxSelect.startY,boxSelect.curY),y2=Math.max(boxSelect.startY,boxSelect.curY);return <div style={{position:"absolute",left:LABEL_W+PARAM_LABEL_W+x1,top:RULER_H+(waveformPeaks?40:0)+y1,width:x2-x1,height:y2-y1,border:"1px solid #e8aa2288",background:"rgba(232,170,34,0.08)",borderRadius:2,pointerEvents:"none",zIndex:40}}/>;})()}
           </div>
         </div>
-        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} midiActions={{
-          "act:play":(()=>{let last=0;return()=>{const now=Date.now();if(now-last<200)return;last=now;setPlaying(p=>{if(!p&&audioMode!=="none")audioEngine.ensureContext();return!p;});};})(),
-          "act:stop":()=>{setPlaying(false);playheadRef.current=loopStart;setDisplayPlayhead(loopStart);audioEngine.stopFilePlayback();},
-          "act:rewind":()=>{playheadRef.current=0;setDisplayPlayhead(0);if(audioMode==="file"&&playing)audioEngine.seekTo(0);},
-          "act:loop":()=>setLoopEnabled(v=>!v),
-          "act:snap":()=>setSnapToGrid(v=>!v),
-          "act:edit":()=>setTool("select"),
-          "act:draw":()=>setTool("draw"),
-          "act:copy":()=>{if(copyMode){setCopyMode(false);setCopiedCues(null);}else{setCopyMode(true);const sel=selectedCues.size>0?cues.filter(c=>selectedCues.has(c.id)):selectedCue?cues.filter(c=>c.id===selectedCue):[];if(sel.length>0)setCopiedCues(sel.map(c=>({...c,id:null})));}},
-          "act:undo":handleGlobalUndo,
-          "act:redo":handleGlobalRedo,
-          "act:loop_in":()=>{playheadRef.current=loopStart;setDisplayPlayhead(loopStart);if(audioMode==="file"&&playing)audioEngine.seekTo(loopStart);},
-          "act:loop_out":()=>{setLoopEnabled(false);playheadRef.current=loopEnd;setDisplayPlayhead(loopEnd);if(audioMode==="file"&&playing)audioEngine.seekTo(loopEnd);},
-          "act:tap":handleTap,
-          "pad-selfix":()=>{if(selectedCues.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const fxIds=new Set(sel.map(c=>c.fixtureId));const newSel=new Set();cues.forEach(c=>{if(fxIds.has(c.fixtureId)&&params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},
-          /* "pad-half" removed — merged into TIME slider */
-          "pad-dup":()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());flashScreen("#ff8844");},
-          "pad-delete":()=>{setCues(prev=>prev.filter(c=>!selectedCues.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},
-          "pad-selall":()=>{if(selectedCues.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const newSel=new Set();cues.forEach(c=>{if(params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},
-          /* "pad-double" removed — merged into TIME slider */
-          "pad-dupfx":()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id)&&c.beat>=fxStart&&c.beat<fxEnd);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());},
-          "pad-reverse":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length<1)return prev;const updates={};sel.forEach(c=>{const u={};if(c.startValue!==undefined&&c.endValue!==undefined){u.startValue=c.endValue;u.endValue=c.startValue;}else if(c.startValue!==undefined){u.endValue=c.startValue;u.startValue=c.value;u.value=c.startValue;}if(c.autoPoints&&c.autoPoints.length>0){const maxT=Math.max(...c.autoPoints.map(p=>p.t));u.autoPoints=c.autoPoints.map(p=>({...p,t:maxT-p.t})).reverse();}updates[c.id]=u;});const groups={};sel.forEach(c=>{const k=c.fixtureId+"-"+c.param;if(!groups[k])groups[k]=[];groups[k].push(c);});Object.values(groups).forEach(g=>{if(g.length<2)return;g.sort((a,b)=>a.beat-b.beat);const vals=g.map(c=>c.value);const revVals=[...vals].reverse();g.forEach((c,i)=>{if(!updates[c.id])updates[c.id]={};updates[c.id].value=revVals[i];});});if(Object.keys(updates).length===0)return prev;return prev.map(c=>updates[c.id]?{...c,...updates[c.id]}:c);});flashScreen("#4488ff");},
-          "pad-full":()=>{setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const maxVal=Math.max(...sel.map(c=>c.value));if(maxVal===0)return prev;const groups={};sel.forEach(c=>{const p=getParam(c.param);if(p)groups[c.param]=p;});return prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=groups[c.param];if(!p)return c;const scale=p.max/maxVal;const nc={...c,value:Math.round(c.value*scale)};if(c.startValue!==undefined)nc.startValue=Math.round(c.startValue*scale);if(c.endValue!==undefined)nc.endValue=Math.round(c.endValue*scale);if(c.autoPoints)nc.autoPoints=c.autoPoints.map(pt=>({...pt,v:Math.round(pt.v*scale)}));return nc;});});},
-          "pad-goto":()=>{const target=fxStart||0;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const ids=new Set(sel.map(c=>c.id));const byLane={};sel.forEach(c=>{const k=c.fixtureId+":"+c.param;if(!byLane[k])byLane[k]=[];byLane[k].push(c);});const offsets={};Object.entries(byLane).forEach(([k,laneCues])=>{laneCues.sort((a,b)=>a.beat-b.beat);offsets[k]=target-laneCues[0].beat;});return prev.map(c=>{if(!ids.has(c.id))return c;const k=c.fixtureId+":"+c.param;return{...c,beat:c.beat+(offsets[k]||0)};});});},
-          "pad-dissolve":handleDissolve,
-          "pad-split":()=>{setSplitMode(true);setPopupPos(null);},
-          "pad-black":()=>{const anyMuted=cues.filter(c=>selectedCues.has(c.id)).some(c=>c.muted);setCues(prev=>prev.map(c=>selectedCues.has(c.id)?{...c,muted:!anyMuted}:c));},
-          /* "pad-nudge" disabled — kept for future use */
-          "pad-quant":()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:Math.round(c.beat),duration:Math.max(0.25,Math.round(c.duration*4)/4)}:c);});},
-          "pad-invert":()=>{setCues(prev=>prev.map(c=>{if(!selectedCues.has(c.id))return c;const p=getParam(c.param);if(!p)return c;const inv=v=>p.max-(v-p.min);const nc={...c,value:inv(c.value)};if(c.startValue!==undefined)nc.startValue=inv(c.startValue);if(c.endValue!==undefined)nc.endValue=inv(c.endValue);return nc;}));}
-        }}/>}
+        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions}/>}
         </div>
 
         <div style={{width:(rightPanelWide||alwaysWideTabs)?440:220,background:"#141820",display:playMode?"none":"flex",flexDirection:"column",flexShrink:0,overflow:"hidden",transition:"width 0.2s ease",margin:"6px 6px 6px 0",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
@@ -5272,7 +5447,19 @@ function LightingTimeline() {
                 <button onClick={()=>setDmxMonitorOpen(true)} style={{padding:"8px 0",fontSize:12,fontWeight:"bold",letterSpacing:1,background:dmxMonitorOpen?"#0a1a2a":"#0c0e12",border:"2px solid "+(dmxMonitorOpen?"#4488ff":"#4488ff44"),color:"#4488ff",borderRadius:6,cursor:"pointer",marginTop:0,minHeight:32,touchAction:"manipulation"}}>{"\u25A3"} DMX MONITOR</button>
                 <div style={{fontSize:8,color:"#ff884466",letterSpacing:2,marginTop:0}}>MIDI</div>
                 <button onClick={toggleMidi} style={{padding:"8px 0",fontSize:12,fontWeight:"bold",letterSpacing:2,background:midiConnected?"#0a1a10":"#0c0e12",border:"2px solid "+(midiConnected?"#22cc5555":"#252930"),color:midiConnected?"#22cc55":"#555",borderRadius:6,cursor:"pointer",minHeight:32,touchAction:"manipulation",boxShadow:midiConnected?"0 0 12px #22cc5522, inset 0 0 8px #22cc5511":"none",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><div style={{width:6,height:6,borderRadius:"50%",background:midiConnected?"#22cc55":"#333",boxShadow:midiConnected?"0 0 6px #22cc55":"none",transition:"all 0.3s"}}/>MIDI</button>
+                {midiStatus && <div style={{fontSize:9,color:midiStatus.includes('error')||midiStatus.includes('not')?"#ff6644":"#4488ff",letterSpacing:1,padding:"3px 6px",background:"#0a0c10",borderRadius:4,border:"1px solid #252930",textAlign:"center"}}>{midiStatus}</div>}
                 {midiConnected && (<>
+                  {midiDetectedDevice && (()=>{
+                    const dt = MIDI_DEVICE_TYPES[midiDetectedDevice.type] || MIDI_DEVICE_TYPES["unknown"];
+                    return <div style={{background:dt.color+"11",border:"1px solid "+dt.color+"44",borderRadius:6,padding:"5px 8px",display:"flex",flexDirection:"column",gap:2}}>
+                      <div style={{display:"flex",alignItems:"center",gap:5}}>
+                        <span style={{fontSize:12}}>{dt.icon}</span>
+                        <span style={{fontSize:9,fontWeight:"bold",color:dt.color,letterSpacing:1}}>{midiDetectedDevice.brand} {midiDetectedDevice.model}</span>
+                      </div>
+                      <div style={{fontSize:7,color:dt.color+"88",letterSpacing:1.5}}>{dt.label}</div>
+                      {midiDetectedDevice.detectedName && midiDetectedDevice.detectedName !== midiDetectedDevice.model && <div style={{fontSize:6,color:"#555",letterSpacing:0.5}}>{midiDetectedDevice.detectedName}</div>}
+                    </div>;
+                  })()}
                   <div style={{display:"flex",gap:4}}>
                     <button onClick={()=>setMidiLearn(prev => prev !== null ? null : "waiting")} style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:midiLearn!==null?"#2a1a30":"#0c0e12",border:"2px solid "+(midiLearn!==null?"#aa44ff":"#252930"),color:midiLearn!==null?"#cc66ff":"#555",borderRadius:6,cursor:"pointer",minHeight:28,touchAction:"manipulation",animation:midiLearn!==null?"midipulse 1.2s infinite":"none"}}>LEARN</button>
                     <button onClick={()=>setMidiSettingsOpen(v=>!v)} style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:midiSettingsOpen?"#1a1030":"#0c0e12",border:"2px solid "+(midiSettingsOpen?"#aa44ff":"#252930"),color:midiSettingsOpen?"#cc66ff":"#555",borderRadius:6,cursor:"pointer",minHeight:28,touchAction:"manipulation"}}>{"\u2699"} MIDI</button>
@@ -8402,6 +8589,22 @@ function LightingTimeline() {
               <span style={{fontSize:14,fontWeight:"bold",color:"#cc66ff",letterSpacing:2}}>{"\u266B"} MIDI SETTINGS</span>
               <button onClick={()=>setMidiSettingsOpen(false)} style={{background:"none",border:"none",color:"#ff5544",fontSize:18,cursor:"pointer",fontWeight:"bold"}}>✕</button>
             </div>
+            {midiDetectedDevice && (()=>{
+              const dt = MIDI_DEVICE_TYPES[midiDetectedDevice.type] || MIDI_DEVICE_TYPES["unknown"];
+              const caps = [];
+              if(midiDetectedDevice.pads) caps.push(midiDetectedDevice.pads.rows+"×"+midiDetectedDevice.pads.cols+" pads");
+              if(midiDetectedDevice.keys) caps.push((midiDetectedDevice.keys.noteEnd-midiDetectedDevice.keys.noteStart+1)+" keys");
+              if(midiDetectedDevice.faders) caps.push(midiDetectedDevice.faders.count+" faders/knobs");
+              if(midiDetectedDevice.transport) caps.push("transport");
+              return <div style={{background:dt.color+"11",border:"1px solid "+dt.color+"33",borderRadius:8,padding:"8px 10px",marginBottom:4,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:18}}>{dt.icon}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,fontWeight:"bold",color:dt.color}}>{midiDetectedDevice.brand} {midiDetectedDevice.model}</div>
+                  <div style={{fontSize:8,color:dt.color+"88",letterSpacing:1}}>{dt.label}{caps.length>0?" — "+caps.join(", "):""}</div>
+                  {midiDetectedDevice.detectedName && midiDetectedDevice.detectedName !== midiDetectedDevice.model && <div style={{fontSize:7,color:"#555",marginTop:2}}>{midiDetectedDevice.detectedName}</div>}
+                </div>
+              </div>;
+            })()}
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2}}>VALUE SOURCE</div>
             <div style={{display:"flex",gap:4}}>
               {[{id:"velocity",label:"KEY VELOCITY",desc:"Press harder = higher value"},{id:"mod",label:"MOD WHEEL",desc:"Wheel position = value"},{id:"aftertouch",label:"AFTERTOUCH",desc:"Key pressure = live value"}].map(m=>(

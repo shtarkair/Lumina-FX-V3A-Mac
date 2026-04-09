@@ -43,8 +43,8 @@ try {
       midiInput.on('message', (deltaTime, message) => {
         // Forward raw MIDI bytes to all WebSocket clients
         const msg = JSON.stringify({ type: 'midi_message', data: Array.from(message) });
-        if (typeof wss !== 'undefined') {
-          wss.clients.forEach(ws => {
+        if (global._wss) {
+          global._wss.clients.forEach(ws => {
             if (ws.readyState === WebSocket.OPEN) ws.send(msg);
           });
         }
@@ -82,7 +82,9 @@ const UPDATE_FILES = [
   'lighting-server.js',
   'fixture-library.json',
   'package.json',
-  'package-lock.json'
+  'package-lock.json',
+  'lib/react.production.min.js',
+  'lib/react-dom.production.min.js'
 ];
 const GITHUB_REPO = 'shtarkair/Lumina-FX-V3A-Mac';
 // Detect if running from git repo: check for .git AND that git commands work
@@ -712,6 +714,17 @@ setTimeout(() => {
     });
     return;
   }
+  // Serve local lib files (React, etc.)
+  if (req.url.startsWith('/lib/') && req.url.endsWith('.js')) {
+    const safeName = path.basename(req.url);
+    const libPath = path.join(__dirname, 'lib', safeName);
+    fs.readFile(libPath, (err, data) => {
+      if (err) { res.writeHead(404); res.end('Not found'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' });
+      res.end(data);
+    });
+    return;
+  }
   // Default: serve the app
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -719,7 +732,12 @@ setTimeout(() => {
       res.end('Error loading file');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
     res.end(data);
   });
 });
@@ -1522,6 +1540,7 @@ function restartOutputLoop() {
 
 // --- WebSocket Server ---
 const wss = new WebSocket.Server({ server });
+global._wss = wss; // expose for MIDI broadcast (MIDI handler is registered before wss is created)
 
 wss.on('connection', (ws) => {
   console.log('[WS] Client connected');
@@ -1715,6 +1734,9 @@ setInterval(() => {
     if (ws.readyState === WebSocket.OPEN && ws._isVizClient) ws.send(json);
   });
 }, 50);
+
+// --- Safety: HTTP error handler ---
+server.on('error', (err) => { console.error('[HTTP] Server error:', err.message); });
 
 // --- Start ---
 server.listen(PORT, () => {
