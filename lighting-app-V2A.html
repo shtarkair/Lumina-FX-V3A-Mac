@@ -2450,16 +2450,18 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const hasAnySolo=soloLanes&&soloLanes.size>0;
             const isSoloDimmed=hasAnySolo&&!isSoloed;
             const hasFloor=paramFloors&&paramFloors[laneKey]!==undefined;
+            const floorLevel=hasFloor?paramFloors[laneKey]:0;
             const hasOverride=paramOverrides&&paramOverrides[laneKey]!==undefined;
             const pRange=Math.max(1,param.max-param.min);
             // Use actual computed output value from liveValues (includes floor/park/mute)
             const realVal=liveValues&&liveValues[laneKey]!==undefined?liveValues[laneKey]:undefined;
             const displayVal=isMuted?0:realVal!==undefined?realVal:isActive&&liveVal!==undefined?liveVal:padVal;
             const fillPct=isMuted?0:Math.max(0,Math.min(1,(displayVal-param.min)/pRange));
+            const floorPct=hasFloor?Math.max(0,Math.min(1,(floorLevel-param.min)/pRange)):0;
             const glowStr=isActive?(0.3+dimVal*0.7):0;
             const hasValue=realVal!==undefined&&realVal>0;
-            const fillColor=hasOverride?"#ff2244":hasFloor?"#00ff44":pCol;
-            const keyBg=isMuted?`linear-gradient(180deg,#2a1a1a,#1a0a0a)`:isHeld?`linear-gradient(180deg,${fillColor}dd,${fillColor}88)`:hasValue||isActive?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,${fillColor}aa ${(1-fillPct)*100}%,${fillColor}77 100%)`:`linear-gradient(180deg,#d4d8e0,#aeb4c0)`;
+            const fillColor=hasOverride?"#ff2244":pCol;
+            const keyBg=isMuted?`linear-gradient(180deg,#2a1a1a,#1a0a0a)`:isHeld?`linear-gradient(180deg,${hasFloor?"#00ff44":fillColor}dd,${hasFloor?"#00ff44":fillColor}88)`:hasFloor&&(hasValue||isActive)?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,#99a0aa ${(1-fillPct)*100}%,#88909a ${(1-floorPct)*100}%,#00ff44aa ${(1-floorPct)*100}%,#00ff4477 100%)`:hasValue||isActive?`linear-gradient(180deg,#e8eaf0 0%,#d0d4de ${(1-fillPct)*100}%,${fillColor}aa ${(1-fillPct)*100}%,${fillColor}77 100%)`:`linear-gradient(180deg,#d4d8e0,#aeb4c0)`;
             const padBorder=isMuted?"2px solid #ff440088":isSoloed?"2px solid #ffcc00":hasOverride?"2px solid #ff224488":hasFloor?"2px solid #00ff4488":isHeld?`2px solid ${fx.color}`:isActive?`1px solid ${fx.color}bb`:"1px solid #7a7e8a";
             const padShadow=isMuted?"0 0 12px #ff440044,0 6px 0 #111":isSoloed?`0 0 14px #ffcc0066,0 6px 0 #111`:isHeld?`0 0 22px ${pCol}bb,0 4px 0 #000`:isActive?`0 0 ${10+glowStr*18}px ${pCol}77,0 6px 0 #111`:"0 6px 0 #111";
             return (
