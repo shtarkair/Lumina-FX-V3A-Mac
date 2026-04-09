@@ -639,7 +639,11 @@ setTimeout(() => {
         fs.mkdirSync(backupDir, { recursive: true });
         for (const fname of UPDATE_FILES) {
           const src = path.join(__dirname, fname);
-          if (fs.existsSync(src)) fs.copyFileSync(src, path.join(backupDir, fname));
+          if (fs.existsSync(src)) {
+            const destPath = path.join(backupDir, fname);
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.copyFileSync(src, destPath);
+          }
         }
         let packageWillChange = false;
         try { packageWillChange = execSync('git diff --name-only HEAD..origin/master', { cwd: __dirname, stdio: 'pipe' }).toString().includes('package.json'); } catch(e) {}
@@ -666,7 +670,11 @@ setTimeout(() => {
           fs.mkdirSync(backupDir, { recursive: true });
           for (const fname of UPDATE_FILES) {
             const src = path.join(__dirname, fname);
-            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(backupDir, fname));
+            if (fs.existsSync(src)) {
+              const destPath = path.join(backupDir, fname);
+              fs.mkdirSync(path.dirname(destPath), { recursive: true });
+              fs.copyFileSync(src, destPath);
+            }
           }
           console.log('[UPDATE] Backup created:', backupDir);
 
@@ -676,7 +684,9 @@ setTimeout(() => {
             const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/${tag}/${fname}`;
             try {
               const fileData = await httpsGet(url);
-              fs.writeFileSync(path.join(__dirname, fname), fileData);
+              const filePath = path.join(__dirname, fname);
+              fs.mkdirSync(path.dirname(filePath), { recursive: true });
+              fs.writeFileSync(filePath, fileData);
               downloaded++;
               console.log('[UPDATE] Downloaded:', fname, `(${fileData.length} bytes)`);
             } catch (e) {
