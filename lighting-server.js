@@ -102,10 +102,10 @@ function getLocalVersion() {
 
 // --- GitHub Token for private repo updates ---
 const GITHUB_TOKEN = (() => {
-  // Try local file first (for dev), then fall back to embedded token
+  // Try local file first (for dev)
   const tokenFile = path.join(__dirname, '.github-token');
   try { const t = fs.readFileSync(tokenFile, 'utf8').trim(); if (t) return t; } catch(e) {}
-  return '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';
+  return '';
 })();
 if (GITHUB_TOKEN) console.log('[UPDATE] GitHub token loaded for private repo access');
 
@@ -118,7 +118,8 @@ function httpsGet(url, useAuth = true) {
       if (useAuth && GITHUB_TOKEN && u.includes('github')) {
         headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
       }
-      https.get(u, { headers }, (res) => {
+      console.log('[UPDATE] Fetching:', u);
+      const req = https.get(u, { headers, timeout: 15000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return get(res.headers.location);
         }
@@ -127,12 +128,14 @@ function httpsGet(url, useAuth = true) {
           console.log('[UPDATE] Token auth failed, retrying without auth...');
           return httpsGet(url, false).then(resolve).catch(reject);
         }
-        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} from ${u}`));
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => resolve(Buffer.concat(chunks)));
         res.on('error', reject);
-      }).on('error', reject);
+      });
+      req.on('error', (e) => { console.log('[UPDATE] Request error:', e.message); reject(e); });
+      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
     };
     get(url);
   });
