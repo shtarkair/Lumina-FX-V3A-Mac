@@ -2464,7 +2464,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const padShadow=isMuted?"0 0 12px #ff440044,0 6px 0 #111":isSoloed?`0 0 14px #ffcc0066,0 6px 0 #111`:isHeld?`0 0 22px ${pCol}bb,0 4px 0 #000`:isActive?`0 0 ${10+glowStr*18}px ${pCol}77,0 6px 0 #111`:"0 6px 0 #111";
             return (
               <div key={fx.id} style={{position:"absolute",left:x,top:0,width:WW,opacity:isSoloDimmed?0.35:1,transition:"opacity 0.15s"}}>
-                <div onMouseDown={()=>{if(midiLearn==="waiting"){setMidiLearn(fx.id);return;}handlePadPress(fx.id);}} onMouseUp={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}} onMouseLeave={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}}
+                <div onMouseDown={()=>{if(midiLearn!==null){setMidiLearn(midiLearn===fx.id?'waiting':fx.id);return;}handlePadPress(fx.id);}} onMouseUp={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}} onMouseLeave={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}}
                   style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:keyBg,border:padBorder,boxShadow:padShadow,cursor:mode?"pointer":"default",position:"relative",overflow:"hidden",transform:isHeld?"translateY(3px)":"translateY(0)",transition:isHeld?"none":"all 0.06s",userSelect:"none",animation:isSoloed?"soloBlink 0.8s ease-in-out infinite":"none"}}>
                   <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:isMuted?"#ff440033":isSoloed?"#ffcc0033":hasValue?fillColor+"33":"rgba(0,0,0,0.18)",border:isMuted?`1px solid #ff440066`:isSoloed?"1px solid #ffcc0066":`1px solid ${fx.color}88`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:isMuted?"#ff6633":isSoloed?"#ffcc00":hasValue?"#000":"#777"}}>{fx.id}</div>
                   <div style={{position:"absolute",top:28,left:0,right:0,bottom:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -3566,6 +3566,8 @@ function LightingTimeline() {
   const [updateInfo, setUpdateInfo] = useState(null); // { branch, localCommit, remoteCommit, behind, changedFiles, fileDetails, commitMessages }
   const [updateError, setUpdateError] = useState('');
   const [updateProgress, setUpdateProgress] = useState('');
+  const [currentAppVersion, setCurrentAppVersion] = useState('');
+  useEffect(()=>{fetch('/version.json').then(r=>r.json()).then(d=>{setCurrentAppVersion(d.tag||'unknown');}).catch(()=>{setCurrentAppVersion('unknown');});},[]);
 
   const formatSize = (bytes) => {
     if (!bytes || bytes === 0) return '—';
@@ -7300,6 +7302,10 @@ function LightingTimeline() {
 
             {/* === UPDATE TAB === */}
             {luminaTab==='update' && <>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                <span style={{fontSize:9,color:"#555",letterSpacing:1}}>CURRENT VERSION</span>
+                <span style={{fontSize:13,color:"#44ffaa",fontWeight:"bold",fontFamily:"monospace",letterSpacing:1}}>{currentAppVersion||'...'}</span>
+              </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:9,color:"#555",letterSpacing:1}}>SOURCE</span>
                 <span style={{flex:1,fontSize:10,color:"#6e7681",fontFamily:"monospace"}}>{updateInfo?.mode==='release'?'GitHub Releases':'github.com / shtarkair / Lumina-FX-V3A-Mac'}</span>
@@ -8528,9 +8534,7 @@ function LightingTimeline() {
             <div onClick={()=>{const v=!screenFlashEnabled;setScreenFlashEnabled(v);try{localStorage.setItem("lumina-screenflash",v?"true":"false");}catch(e){}}} style={{padding:"7px 12px",background:"#0c0e12",border:"1px solid "+(screenFlashEnabled?"#44ffaa44":"#252930"),borderRadius:5,cursor:"pointer",touchAction:"manipulation"}}>
               <div style={{fontSize:10,fontWeight:"bold",color:screenFlashEnabled?"#44ffaa":"#ddd",letterSpacing:2}}>{screenFlashEnabled?'SCREEN FLASH: ON':'SCREEN FLASH: OFF'}</div>
             </div>
-            <div onClick={()=>{const v=!autoDissolve;setAutoDissolve(v);try{localStorage.setItem("lumina-autodissolve",v?"true":"false");}catch(e){}}} style={{padding:"7px 12px",background:"#0c0e12",border:"1px solid #252930",borderRadius:5,cursor:"pointer",touchAction:"manipulation"}}>
-              <div style={{fontSize:10,fontWeight:"bold",color:"#ddd",letterSpacing:2}}>{autoDissolve?'AUTO DISSOLVE: ON':'AUTO DISSOLVE: OFF'}</div>
-            </div>
+            {/* Auto Dissolve removed */}
             <div onClick={()=>{const v=!midiAutoConnect;setMidiAutoConnect(v);try{localStorage.setItem("lumina-midi-autoconnect",v?"true":"false");}catch(e){}}} style={{padding:"7px 12px",background:"#0c0e12",border:"1px solid #252930",borderRadius:5,cursor:"pointer",touchAction:"manipulation"}}>
               <div style={{fontSize:10,fontWeight:"bold",color:"#ddd",letterSpacing:2}}>{midiAutoConnect?'MIDI AT STARTUP: ON':'MIDI AT STARTUP: OFF'}</div>
             </div>

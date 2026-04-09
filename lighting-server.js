@@ -525,6 +525,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // --- Serve version.json ---
+  if (req.url === '/version.json' && req.method === 'GET') {
+    try {
+      const vData = fs.readFileSync(VERSION_FILE, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(vData);
+    } catch(e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ tag: 'unknown' }));
+    }
+    return;
+  }
+
   // --- Software Update: check for new version ---
   if (req.url === '/api/update-check' && req.method === 'GET') {
     if (IS_GIT_REPO) {
