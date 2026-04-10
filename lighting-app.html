@@ -6,9 +6,11 @@
   <title>LUMINA FX V2A - Lighting Timeline Sequencer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { overflow: hidden; background: #07090d; }
-    ::selection { background: transparent; color: inherit; }
-    ::-moz-selection { background: transparent; color: inherit; }
+    html, body { overflow: hidden; background: #07090d; -webkit-user-select: none !important; user-select: none !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; -webkit-touch-callout: none !important; }
+    *, *::before, *::after { -webkit-user-select: none !important; user-select: none !important; -webkit-user-drag: none !important; }
+    input, textarea, [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
+    ::selection { background: transparent !important; color: inherit !important; }
+    ::-moz-selection { background: transparent !important; color: inherit !important; }
     ::-webkit-scrollbar { width: 16px; height: 16px; }
     ::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 10px; }
     ::-webkit-scrollbar-thumb { background: #4a5068; border-radius: 10px; border: 3px solid transparent; background-clip: content-box; min-height: 44px; min-width: 44px; }
@@ -66,6 +68,23 @@
   </div>
   <div id="root"></div>
   <script>new MutationObserver(function(m,o){if(document.getElementById('root').children.length>0){var s=document.getElementById('splash');if(s){s.classList.add('hide');setTimeout(function(){s.remove();},500);}o.disconnect();}}).observe(document.getElementById('root'),{childList:true});</script>
+  <script>
+    // Bulletproof text-selection suppression (desktop DMX controller — no text selection needed outside inputs)
+    (function(){
+      var isInput=function(t){return t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable);};
+      document.addEventListener('selectstart',function(e){if(!isInput(e.target)){e.preventDefault();}},true);
+      document.addEventListener('dragstart',function(e){if(!isInput(e.target)){e.preventDefault();}},true);
+      document.addEventListener('selectionchange',function(){
+        var sel=window.getSelection&&window.getSelection();
+        if(!sel||sel.rangeCount===0)return;
+        var anch=sel.anchorNode;
+        var el=anch&&anch.nodeType===1?anch:anch&&anch.parentElement;
+        if(!isInput(el)&&!(el&&el.closest&&(el.closest('input')||el.closest('textarea')||el.closest('[contenteditable="true"]')))){
+          try{sel.removeAllRanges();}catch(_){}
+        }
+      });
+    })();
+  </script>
   <script src="lib/react.production.min.js"></script>
   <script src="lib/react-dom.production.min.js"></script>
   <script>
