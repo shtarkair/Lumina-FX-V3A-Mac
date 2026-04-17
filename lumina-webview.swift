@@ -42,6 +42,12 @@ class LuminaWindow: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUID
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        // Allow inline media capture (getUserMedia) — without these, WKWebView
+        // silently denies mic/camera access even if the app has TCC permission.
+        config.preferences.setValue(true, forKey: "mediaDevicesEnabled")
+        config.preferences.setValue(true, forKey: "mediaStreamEnabled")
+        config.preferences.setValue(true, forKey: "peerConnectionEnabled")
+        config.preferences.setValue(false, forKey: "mockCaptureDevicesPromptEnabled")
 
         let dataStore = WKWebsiteDataStore.default()
         config.websiteDataStore = dataStore
@@ -199,6 +205,20 @@ class LuminaWindow: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUID
                 completionHandler(nil)
             }
         }
+    }
+
+    // Grant microphone / camera permission inside WKWebView.
+    // Uses @objc dynamic dispatch so it compiles on any SDK version but gets
+    // called at runtime on macOS 12+ where WKWebView actually checks this delegate.
+    // The Obj-C selector is: webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:
+    // Decision values: 0=deny, 1=grant, 2=prompt  —  we grant for localhost only.
+    @objc(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:)
+    func grantMediaCapture(_ webView: WKWebView,
+                           requestMediaCapturePermissionForOrigin origin: Any,
+                           initiatedByFrame frame: Any,
+                           type: Int,
+                           decisionHandler: @escaping @convention(block) (Int) -> Void) {
+        decisionHandler(1) // 1 = grant
     }
 
     // Fallback: also handle window.open() via WKUIDelegate

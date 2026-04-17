@@ -51,6 +51,7 @@
     @keyframes splashGlow { 0%,100% { text-shadow: 0 0 20px #cc994400, 0 0 40px #cc994400; opacity:0.7; } 50% { text-shadow: 0 0 20px #cc9944aa, 0 0 60px #cc994466, 0 0 100px #cc994422; opacity:1; } }
     @keyframes splashDot { 0%,80%,100% { opacity:0.2; } 40% { opacity:1; } }
     @keyframes splashFadeOut { 0% { opacity:1; } 100% { opacity:0; pointer-events:none; } }
+    @keyframes midipulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,204,68,0.8); } 50% { box-shadow: 0 0 0 6px rgba(255,204,68,0); } }
     #splash { position:fixed; inset:0; z-index:99999; background:#0f1115; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; font-family:"Courier New",monospace; transition:opacity 0.4s ease-out; }
     #splash.hide { animation: splashFadeOut 0.4s ease-out forwards; }
     #splash .logo { font-size:32px; font-weight:bold; color:#cc9944; letter-spacing:8px; animation: splashGlow 2s ease-in-out infinite; }
@@ -225,19 +226,19 @@ const PARAM_GROUPS = [
 const ALL_PARAMS = PARAM_GROUPS.flatMap(g => g.params);
 const getParam = id => ALL_PARAMS.find(p => p.id === id) || ALL_PARAMS[0];
 
-const TYPE_COLORS = { SPOT:"#ff5544", WASH:"#44aaff", STROBE:"#ffdd44", LED:"#aa44ff", FX:"#44ffaa", DIM:"#cccccc", ROBE_MP:"#ff8800", ROBE_MP2:"#ff6600", MAC_VIPER:"#22ccaa", MAC_VIPER2:"#11aa88" };
+const TYPE_COLORS = { SPOT:"#ff0000", WASH:"#0000ff", STROBE:"#ffffff", LED:"#00ff00", FX:"#ff00ff", DIM:"#00ffff", ROBE_MP:"#ff0000", ROBE_MP2:"#ff00ff", MAC_VIPER:"#0000ff", MAC_VIPER2:"#00ffff" };
 const FIXTURE_POSITIONS = ["FRONT 1","FRONT 2","TOP","TOP BACK","BACK","FLOOR","SIDE","CUSTOM"];
-const POSITION_COLORS = {"FRONT 1":"#ff8844","FRONT 2":"#ffaa44","TOP":"#44aaff","TOP BACK":"#4466ff","BACK":"#aa44ff","FLOOR":"#44ffaa","SIDE":"#ffdd44","CUSTOM":"#888888"};
+const POSITION_COLORS = {"FRONT 1":"#ff0000","FRONT 2":"#ff00ff","TOP":"#0000ff","TOP BACK":"#00ffff","BACK":"#00ff00","FLOOR":"#ffffff","SIDE":"#ffdd00","CUSTOM":"#888888"};
 function defaultFixtures() {
   return [
-    { id:1, name:"Spot 1",    color:"#ff5544", type:"SPOT",   position:"FRONT 1" },
-    { id:2, name:"Spot 2",    color:"#ff5544", type:"SPOT",   position:"FRONT 1" },
-    { id:3, name:"Wash 1",    color:"#44aaff", type:"WASH",   position:"TOP"     },
-    { id:4, name:"Wash 2",    color:"#44aaff", type:"WASH",   position:"TOP"     },
-    { id:5, name:"Strobe 1",  color:"#ffdd44", type:"STROBE", position:"FRONT 2" },
-    { id:6, name:"LED Bar 1", color:"#aa44ff", type:"LED",    position:"BACK"    },
-    { id:7, name:"LED Bar 2", color:"#aa44ff", type:"LED",    position:"BACK"    },
-    { id:8, name:"Fog",       color:"#44ffaa", type:"FX",     position:"FLOOR"   },
+    { id:1, name:"Spot 1",    color:"#ff0000", type:"SPOT",   position:"FRONT 1" },
+    { id:2, name:"Spot 2",    color:"#ff0000", type:"SPOT",   position:"FRONT 1" },
+    { id:3, name:"Wash 1",    color:"#0000ff", type:"WASH",   position:"TOP"     },
+    { id:4, name:"Wash 2",    color:"#0000ff", type:"WASH",   position:"TOP"     },
+    { id:5, name:"Strobe 1",  color:"#ffffff", type:"STROBE", position:"FRONT 2" },
+    { id:6, name:"LED Bar 1", color:"#00ff00", type:"LED",    position:"BACK"    },
+    { id:7, name:"LED Bar 2", color:"#00ffff", type:"LED",    position:"TOP BACK"},
+    { id:8, name:"Fog",       color:"#ff00ff", type:"FX",     position:"FLOOR"   },
   ];
 }
 
@@ -2107,7 +2108,7 @@ const defaultCues = [
   {id:genId(),fixtureId:6,param:"yellow",beat:4,duration:8,value:100,easing:"bounce",fadeIn:0.4,fadeOut:0,startValue:0,endValue:0},
 ];
 
-const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues }) {
+const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues, padMap, setPadMap, padMapMode, setPadMapMode }) {
   const PADS_PER_PAGE = 19;
   const [padPage, setPadPage] = useState(0);
   const [activeParam, setActiveParam] = useState("dimmer");
@@ -2190,7 +2191,10 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
       // MMC SysEx: F0 7F <devId> 06 <cmd> F7 — distinguish by the MMC command byte (data[4])
       const isMMC = status === 0xF0 && e.data.length >= 6 && e.data[1] === 0x7F && e.data[3] === 0x06;
       const mmcCmd = isMMC ? e.data[4] : 0;
-      const mapKey = status >= 0xF8 ? "rt:"+status : cmd === 0xB0 ? "cc:"+note : isMMC ? "mmc:"+mmcCmd : cmd === 0xF0 ? "sys:"+note : cmd === 0xE0 ? "pb" : ""+note;
+      // Apply user's MIDI note transpose (semitones) to note-on/off only — lets user calibrate if controller octave naming differs from Lumina's
+      const _noteOffset = (typeof window !== "undefined" && typeof window.__midiNoteOffset === "number") ? window.__midiNoteOffset : 0;
+      const noteForMap = (cmd === 0x80 || cmd === 0x90) ? (note + _noteOffset) : note;
+      const mapKey = status >= 0xF8 ? "rt:"+status : cmd === 0xB0 ? "cc:"+note : isMMC ? "mmc:"+mmcCmd : cmd === 0xF0 ? "sys:"+note : cmd === 0xE0 ? "pb" : ""+noteForMap;
       const recordAutoPoint = (newVal) => {
         if (!heldPadsRef.current || heldPadsRef.current.size === 0) return;
         const now = playheadRef.current;
@@ -2221,7 +2225,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
       }
       const learnVal = window.__midiLearnState?.learn || midiLearnRef.current;
       if (window.__midiLearnLock && Date.now() - window.__midiLearnLock < 500) { /* skip duplicate CC from same fader */ }
-      else if (learnVal !== null && learnVal !== "waiting" && ((cmd === 0x90 && velocity > 0) || (cmd === 0xB0 && velocity > 0) || cmd === 0xE0 || status >= 0xF8 || isMMC || (cmd === 0xF0 && velocity > 0))) {
+      else if (learnVal !== null && learnVal !== "waiting" && ((cmd === 0x90 && velocity > 0) || cmd === 0xB0 || cmd === 0xE0 || status >= 0xF8 || isMMC || cmd === 0xF0)) {
         window.__midiLearnLock = Date.now();
         const fxId = learnVal;
         setMidiMap(prev => {
@@ -2293,6 +2297,17 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
           }
         }
       }
+      // Helper: resolve a "grp:<kind>:<value>" mapping to current fixture member IDs (live — reflects latest fixtures prop via closure)
+      const resolveGroupMembers = (grpStr) => {
+        const parts = grpStr.split(":");
+        if (parts.length < 3) return [];
+        const kind = parts[1];
+        const val = parts.slice(2).join(":");
+        if (kind === "type") return fixtures.filter(f=>f.type===val).map(f=>f.id);
+        if (kind === "position") return fixtures.filter(f=>(f.position||"FRONT 1")===val).map(f=>f.id);
+        if (kind === "color") return fixtures.filter(f=>(f.colorGroup||f.color)===val).map(f=>f.id);
+        return [];
+      };
       if ((cmd === 0x90 && velocity > 0) || (cmd === 0xB0 && velocity > 0) || cmd === 0xE0 || status >= 0xF8 || isMMC || (cmd === 0xF0 && velocity > 0)) {
         const mapped = midiMapRef.current[mapKey];
         if (mapped && typeof mapped === "string" && mapped.startsWith("slider:")) return;
@@ -2300,11 +2315,19 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
           if (midiActionsRef.current && midiActionsRef.current[mapped]) midiActionsRef.current[mapped]();
         } else if (mapped && typeof mapped === "string" && mapped.startsWith("bk-")) {
           if (window.__execBlackKey) window.__execBlackKey(mapped);
+        } else if (mapped && typeof mapped === "string" && mapped.startsWith("grp:")) {
+          const members = resolveGroupMembers(mapped);
+          if (handlePadPressRef.current) members.forEach(id => handlePadPressRef.current(id, velocity));
         } else if (mapped && handlePadPressRef.current) handlePadPressRef.current(mapped, velocity);
       }
       if (cmd === 0x80 || (cmd === 0x90 && velocity === 0) || (cmd === 0xB0 && velocity === 0)) {
         const mapped = midiMapRef.current[mapKey];
         if (mapped && typeof mapped === "string" && (mapped.startsWith("act:") || mapped.startsWith("pad-") || mapped.startsWith("bk-"))) return;
+        if (mapped && typeof mapped === "string" && mapped.startsWith("grp:")) {
+          const members = resolveGroupMembers(mapped);
+          if (handlePadReleaseRef.current) members.forEach(id => handlePadReleaseRef.current(id));
+          return;
+        }
         if (mapped && handlePadReleaseRef.current) handlePadReleaseRef.current(mapped);
       }
     };
@@ -2451,15 +2474,21 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
   const WW = padContainerW > 0 ? Math.floor((padContainerW - (PADS_PER_PAGE - 1) * GAP) / PADS_PER_PAGE) : 37;
   const WH = 80;
   const blackAfter = new Set([0,1,2,4,5]);
-  const totalPages = Math.max(1, Math.ceil(fixtures.length / PADS_PER_PAGE));
-  const pagedFixturesRaw = fixtures.slice(padPage * PADS_PER_PAGE, (padPage + 1) * PADS_PER_PAGE);
+  // Resolve which "list" the pad bar is paging over — auto = fixtures array, custom = padMap (lookup id → fixture)
+  const isCustomMap = padMapMode === "custom";
+  const fxById = useMemo(()=>{ const m=new Map(); fixtures.forEach(f=>m.set(f.id,f)); return m; }, [fixtures]);
+  const sourceList = isCustomMap
+    ? (padMap && padMap.length ? padMap.map(id => id==null ? null : (fxById.get(id) || null)) : [])
+    : fixtures;
+  const totalPages = Math.max(1, Math.ceil(Math.max(sourceList.length, isCustomMap?PADS_PER_PAGE:0) / PADS_PER_PAGE));
+  const pagedFixturesRaw = sourceList.slice(padPage * PADS_PER_PAGE, (padPage + 1) * PADS_PER_PAGE);
   // Always show PADS_PER_PAGE keys — fill empty slots with null
   const pagedFixtures = Array.from({length: PADS_PER_PAGE}, (_, i) => pagedFixturesRaw[i] || null);
   const totalW = PADS_PER_PAGE*(WW+GAP)-GAP+10;
 
   return (
     <div style={{background:"#110d0d",flexShrink:0,margin:"0 6px 6px",borderRadius:14,boxShadow:"0 -4px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)",overflow:"hidden"}}>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}@keyframes recglow{0%,100%{box-shadow:0 0 8px #ff220066}50%{box-shadow:0 0 18px #ff2200bb}}@keyframes midipulse{0%,100%{box-shadow:0 0 6px #aa44ff44}50%{box-shadow:0 0 14px #aa44ffaa}}@keyframes midilearn{0%,100%{box-shadow:0 0 8px #cc66ffaa}50%{box-shadow:0 0 20px #cc66ffff}}@keyframes outputoff{0%,100%{text-shadow:0 0 20px #ff0000,0 0 40px #ff000088,0 0 80px #ff000044;opacity:1}50%{text-shadow:0 0 8px #ff000066,0 0 20px #ff000033;opacity:0.6}}@keyframes soloBlink{0%,100%{box-shadow:0 0 14px #ffcc0066,0 6px 0 #111;border-color:#ffcc00}50%{box-shadow:0 0 24px #ffcc00bb,0 6px 0 #111;border-color:#ffee44}}@keyframes soloBadge{0%,100%{opacity:1;background:#ffcc0044}50%{opacity:0.5;background:#ffcc0022}}`}</style>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}@keyframes recglow{0%,100%{box-shadow:0 0 8px #ff000066}50%{box-shadow:0 0 18px #ff0000bb}}@keyframes midipulse{0%,100%{box-shadow:0 0 6px #aa44ff44}50%{box-shadow:0 0 14px #aa44ffaa}}@keyframes midilearn{0%,100%{box-shadow:0 0 8px #cc66ffaa}50%{box-shadow:0 0 20px #cc66ffff}}@keyframes outputoff{0%,100%{text-shadow:0 0 20px #ff0000,0 0 40px #ff000088,0 0 80px #ff000044;opacity:1}50%{text-shadow:0 0 8px #ff000066,0 0 20px #ff000033;opacity:0.6}}@keyframes soloBlink{0%,100%{box-shadow:0 0 14px #ffcc0066,0 6px 0 #111;border-color:#ffcc00}50%{box-shadow:0 0 24px #ffcc00bb,0 6px 0 #111;border-color:#ffee44}}@keyframes soloBadge{0%,100%{opacity:1;background:#ffcc0044}50%{opacity:0.5;background:#ffcc0022}}`}</style>
       <div style={{display:"flex",alignItems:"center",borderBottom:"1px solid #2a1a1a",padding:"4px 10px",gap:8,flexWrap:"wrap"}}>
         <div style={{fontSize:7,color:"#5a3f3f",letterSpacing:2,alignSelf:"center"}}>PARAM:</div>
         <div style={{display:"flex",gap:2,flexWrap:"wrap",flex:1}}>
@@ -2471,12 +2500,19 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
       </div>
       <div style={{padding:"8px 10px 8px",display:"flex",gap:12,alignItems:"flex-start"}}>
         <div ref={padContainerRef} style={{flex:1}}>
-        {totalPages > 1 && <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-          <button onClick={()=>setPadPage(p=>Math.max(0,p-1))} disabled={padPage===0} style={{padding:"2px 8px",background:padPage===0?"#0c0e12":"#1a1e28",border:"1px solid "+(padPage===0?"#252930":"#4488ff"),borderRadius:6,cursor:padPage===0?"default":"pointer",fontSize:10,color:padPage===0?"#333":"#4488ff",fontWeight:"bold"}}>◀</button>
-          <span style={{fontSize:9,color:"#5a6a7a",letterSpacing:1}}>PAGE {padPage+1} / {totalPages}</span>
-          <button onClick={()=>setPadPage(p=>Math.min(totalPages-1,p+1))} disabled={padPage>=totalPages-1} style={{padding:"2px 8px",background:padPage>=totalPages-1?"#0c0e12":"#1a1e28",border:"1px solid "+(padPage>=totalPages-1?"#252930":"#4488ff"),borderRadius:6,cursor:padPage>=totalPages-1?"default":"pointer",fontSize:10,color:padPage>=totalPages-1?"#333":"#4488ff",fontWeight:"bold"}}>▶</button>
-          <span style={{fontSize:8,color:"#3a4a5a",marginLeft:4}}>({fixtures.length} fixtures)</span>
-        </div>}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+          {totalPages > 1 && <button onClick={()=>setPadPage(p=>Math.max(0,p-1))} disabled={padPage===0} style={{padding:"2px 8px",background:padPage===0?"#0c0e12":"#1a1e28",border:"1px solid "+(padPage===0?"#252930":"#4488ff"),borderRadius:6,cursor:padPage===0?"default":"pointer",fontSize:10,color:padPage===0?"#333":"#4488ff",fontWeight:"bold"}}>◀</button>}
+          {totalPages > 1 && <span style={{fontSize:9,color:"#5a6a7a",letterSpacing:1}}>PAGE {padPage+1} / {totalPages}</span>}
+          {totalPages > 1 && <button onClick={()=>setPadPage(p=>Math.min(totalPages-1,p+1))} disabled={padPage>=totalPages-1} style={{padding:"2px 8px",background:padPage>=totalPages-1?"#0c0e12":"#1a1e28",border:"1px solid "+(padPage>=totalPages-1?"#252930":"#4488ff"),borderRadius:6,cursor:padPage>=totalPages-1?"default":"pointer",fontSize:10,color:padPage>=totalPages-1?"#333":"#4488ff",fontWeight:"bold"}}>▶</button>}
+          {totalPages > 1 && <span style={{fontSize:8,color:"#3a4a5a",marginLeft:4}}>({isCustomMap ? (padMap.filter(x=>x!=null).length+" mapped") : (fixtures.length+" fixtures")})</span>}
+          <div style={{marginLeft:"auto",display:"flex",gap:4,alignItems:"center"}}>
+            {isCustomMap && <button onClick={()=>{ if(!confirm("Clear pad map for current page?")) return; setPadMap(prev=>{ const next=[...prev]; for(let i=padPage*PADS_PER_PAGE;i<(padPage+1)*PADS_PER_PAGE;i++){ next[i]=null; } return next; }); }} style={{padding:"2px 8px",background:"#1a0a0a",border:"1px solid #ff444444",borderRadius:6,fontSize:9,color:"#ff6644",fontWeight:"bold",cursor:"pointer",letterSpacing:1}} title="Clear pad map for current page">CLEAR</button>}
+            <div style={{display:"flex",border:"1px solid #2a2e36",borderRadius:6,overflow:"hidden"}}>
+              <button onClick={()=>setPadMapMode("auto")} style={{padding:"2px 10px",background:!isCustomMap?"#1a2e1a":"#0f1115",border:"none",fontSize:9,color:!isCustomMap?"#44ffaa":"#555",fontWeight:"bold",cursor:"pointer",letterSpacing:1}}>AUTO</button>
+              <button onClick={()=>setPadMapMode("custom")} style={{padding:"2px 10px",background:isCustomMap?"#2e1a2e":"#0f1115",border:"none",fontSize:9,color:isCustomMap?"#e8aa22":"#555",fontWeight:"bold",cursor:"pointer",letterSpacing:1}}>MAP</button>
+            </div>
+          </div>
+        </div>
         <div style={{position:"relative",width:totalW,height:WH+20}}>
           {pagedFixtures.map((fx,idx) => {
             const emptySlotId = `empty-${padPage}-${idx}`;
@@ -2525,14 +2561,14 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
             const padShadow=isMuted?"0 0 12px #ff440044,0 6px 0 #111":isSoloed?`0 0 14px #ffcc0066,0 6px 0 #111`:isHeld?`0 0 22px ${pCol}bb,0 4px 0 #000`:isActive?`0 0 ${10+glowStr*18}px ${pCol}77,0 6px 0 #111`:"0 6px 0 #111";
             return (
               <div key={fx.id} style={{position:"absolute",left:x,top:0,width:WW,opacity:isSoloDimmed?0.35:1,transition:"opacity 0.15s"}}>
-                <div onMouseDown={()=>{if(midiLearn!==null){setMidiLearn(midiLearn===fx.id?'waiting':fx.id);return;}handlePadPress(fx.id);}} onMouseUp={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}} onMouseLeave={()=>{if(midiLearn!==null)return;handlePadRelease(fx.id);}}
+                <div data-nograb="true" onPointerDown={(e)=>{e.preventDefault();e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);if(midiLearn!==null){setMidiLearn(midiLearn===fx.id?'waiting':fx.id);return;}handlePadPress(fx.id);}} onPointerUp={(e)=>{e.stopPropagation();if(midiLearn!==null)return;handlePadRelease(fx.id);}} onPointerCancel={()=>{handlePadRelease(fx.id);}}
                   style={{width:WW,height:WH,borderRadius:"3px 3px 8px 8px",background:keyBg,border:padBorder,boxShadow:padShadow,cursor:mode?"pointer":"default",position:"relative",overflow:"hidden",transform:isHeld?"translateY(3px)":"translateY(0)",transition:isHeld?"none":"all 0.06s",userSelect:"none",animation:isSoloed?"soloBlink 0.8s ease-in-out infinite":"none"}}>
                   <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:20,height:20,borderRadius:3,background:isMuted?"#ff440033":isSoloed?"#ffcc0033":hasValue?fillColor+"33":"rgba(0,0,0,0.18)",border:isMuted?`1px solid #ff440066`:isSoloed?"1px solid #ffcc0066":`1px solid ${fx.color}88`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:isMuted?"#ff6633":isSoloed?"#ffcc00":hasValue?"#000":"#777"}}>{fx.id}</div>
                   <div style={{position:"absolute",top:28,left:0,right:0,bottom:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
                     <div style={{writingMode:"vertical-lr",transform:"rotate(180deg)",fontSize:9,letterSpacing:1,color:isMuted?"#ff664466":isSoloed?"#ffcc00":isHeld?"#fff":hasOverride?"#ff2244":hasFloor?"#00ff44":hasValue?"#111":"#555",fontWeight:(hasValue||hasOverride||hasFloor||isSoloed)?"bold":"normal",whiteSpace:"nowrap",overflow:"hidden",maxHeight:40}}>{fx.name}</div>
                   </div>
                   <div style={{position:"absolute",bottom:5,left:0,right:0,textAlign:"center",fontSize:8,fontWeight:"bold",color:isMuted?"#ff440066":hasOverride?"#ff2244":hasFloor?"#00ff44":hasValue?"#111":"#666"}}>{isMuted?"B.O":Math.round(displayVal)}{!isMuted&&param.unit}</div>
-                  {mode==="rec"&&<div style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ff2200",animation:"pulse 1s infinite"}}/>}
+                  {mode==="rec"&&<div style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ff0000",animation:"pulse 1s infinite"}}/>}
                   {mode==="erase"&&hasParam&&<div style={{position:"absolute",top:4,right:4,width:6,height:6,borderRadius:"50%",background:"#ff6600"}}/>}
                   {isMuted&&<div style={{position:"absolute",inset:0,background:"repeating-linear-gradient(45deg,transparent,transparent 3px,#ff440011 3px,#ff440011 6px)",borderRadius:"3px 3px 8px 8px",pointerEvents:"none",zIndex:2}}/>}
                   {hasFloor&&<div style={{position:"absolute",bottom:14,left:3,padding:"0 2px",fontSize:6,fontWeight:"bold",color:"#00ff44",background:"#00ff4422",border:"1px solid #00ff4444",borderRadius:2,lineHeight:"10px",zIndex:3}}>FLR</div>}
@@ -2577,9 +2613,9 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
         </div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4,marginLeft:8,minWidth:80}}>
-          <button onClick={()=>{if(midiLearn==="waiting"){const k=reverseMidiMap["act:rec"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:rec")delete next[k2];});return next;});setMidiLearn(null);}else setMidiLearn("act:rec");return;}setMode(m=>m==="rec"?null:"rec");}} style={{position:"relative",padding:"6px 10px",background:mode==="rec"?"#ff2200":midiLearn==="act:rec"?"#2a1a30":"#1a0a08",border:"2px solid "+(midiLearn==="act:rec"?"#aa44ff":mode==="rec"?"#ff4422":"#3a1a14"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:mode==="rec"?"#fff":"#663322",boxShadow:mode==="rec"?"0 0 16px #ff220099":"none",animation:midiLearn==="act:rec"?"midipulse 1.2s infinite":"none"}}>{"\u23FA"} REC{reverseMidiMap["act:rec"]!==undefined&&midiLearn!=="act:rec"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:rec"])}</span>}</button>
-          <button onClick={()=>{if(midiLearn==="waiting"){const k=reverseMidiMap["act:erase"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:erase")delete next[k2];});return next;});setMidiLearn(null);}else setMidiLearn("act:erase");return;}setMode(m=>m==="erase"?null:"erase");}} style={{position:"relative",padding:"6px 10px",background:mode==="erase"?"#882200":midiLearn==="act:erase"?"#2a1a30":"#100808",border:"2px solid "+(midiLearn==="act:erase"?"#aa44ff":mode==="erase"?"#ff6600":"#2a1a10"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:mode==="erase"?"#ffaa44":"#443322",animation:midiLearn==="act:erase"?"midipulse 1.2s infinite":"none"}}>{"\u2716"} ERASE{reverseMidiMap["act:erase"]!==undefined&&midiLearn!=="act:erase"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:erase"])}</span>}</button>
-          <button onClick={()=>{if(midiLearn==="waiting"){const k=reverseMidiMap["act:quant"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:quant")delete next[k2];});return next;});setMidiLearn(null);}else setMidiLearn("act:quant");return;}setQuantize(q=>!q);}} style={{position:"relative",padding:"6px 10px",background:quantize?"#162030":midiLearn==="act:quant"?"#2a1a30":"#0c0f14",border:"2px solid "+(midiLearn==="act:quant"?"#aa44ff":quantize?"#4488ff":"#252930"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:quantize?"#4488ff":"#333",animation:midiLearn==="act:quant"?"midipulse 1.2s infinite":"none"}}>{"\u266A"} {quantize?"QUANT":"FREE"}{reverseMidiMap["act:quant"]!==undefined&&midiLearn!=="act:quant"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:quant"])}</span>}</button>
+          <button onClick={()=>{if(midiLearn!==null){const k=reverseMidiMap["act:rec"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:rec")delete next[k2];});return next;});}setMidiLearn("act:rec");if(window.__midiLearnState)window.__midiLearnState.learn="act:rec";return;}setMode(m=>m==="rec"?null:"rec");}} style={{position:"relative",padding:"6px 10px",background:mode==="rec"?"#ff0000":midiLearn==="act:rec"?"#2a1a30":"#1a0a08",border:"2px solid "+(midiLearn==="act:rec"?"#aa44ff":mode==="rec"?"#ff4422":"#3a1a14"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:mode==="rec"?"#fff":"#663322",boxShadow:mode==="rec"?"0 0 16px #ff000099":"none",animation:midiLearn==="act:rec"?"midipulse 1.2s infinite":"none"}}>{"\u23FA"} REC{reverseMidiMap["act:rec"]!==undefined&&midiLearn!=="act:rec"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:rec"])}</span>}</button>
+          <button onClick={()=>{if(midiLearn!==null){const k=reverseMidiMap["act:erase"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:erase")delete next[k2];});return next;});}setMidiLearn("act:erase");if(window.__midiLearnState)window.__midiLearnState.learn="act:erase";return;}setMode(m=>m==="erase"?null:"erase");}} style={{position:"relative",padding:"6px 10px",background:mode==="erase"?"#882200":midiLearn==="act:erase"?"#2a1a30":"#100808",border:"2px solid "+(midiLearn==="act:erase"?"#aa44ff":mode==="erase"?"#ff6600":"#2a1a10"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:mode==="erase"?"#ffaa44":"#443322",animation:midiLearn==="act:erase"?"midipulse 1.2s infinite":"none"}}>{"\u2716"} ERASE{reverseMidiMap["act:erase"]!==undefined&&midiLearn!=="act:erase"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:erase"])}</span>}</button>
+          <button onClick={()=>{if(midiLearn!==null){const k=reverseMidiMap["act:quant"];if(k!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k2=>{if(next[k2]==="act:quant")delete next[k2];});return next;});}setMidiLearn("act:quant");if(window.__midiLearnState)window.__midiLearnState.learn="act:quant";return;}setQuantize(q=>!q);}} style={{position:"relative",padding:"6px 10px",background:quantize?"#162030":midiLearn==="act:quant"?"#2a1a30":"#0c0f14",border:"2px solid "+(midiLearn==="act:quant"?"#aa44ff":quantize?"#4488ff":"#252930"),borderRadius:8,cursor:"pointer",fontSize:10,fontWeight:"bold",color:quantize?"#4488ff":"#333",animation:midiLearn==="act:quant"?"midipulse 1.2s infinite":"none"}}>{"\u266A"} {quantize?"QUANT":"FREE"}{reverseMidiMap["act:quant"]!==undefined&&midiLearn!=="act:quant"&&<span style={{position:"absolute",top:-6,right:-4,padding:"0 2px",background:"#1a0a2a",border:"1px solid #7733aa",borderRadius:2,fontSize:6,color:"#bb88ee",fontWeight:"bold"}}>{midiKeyLabel(reverseMidiMap["act:quant"])}</span>}</button>
         </div>
       </div>
       {bkPopup && (()=>{
@@ -2636,7 +2672,7 @@ function detectBpmFromBuffer(audioBuffer) {
   return Math.round(60 / (bestLag * 0.023));
 }
 
-function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioMuted, onLevel, onBeat, onFileLoaded }) {
+function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioMuted, audioInputDeviceId, onLevel, onBeat, onFileLoaded, onLiveBpm }) {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const gainRef = useRef(null);
@@ -2740,13 +2776,38 @@ function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioM
   const startMic = useCallback(async () => {
     const ctx = ensureContext();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Tear down any previous stream first (needed when switching devices)
+      if (micSourceRef.current) { try{micSourceRef.current.disconnect();}catch(_){}  micSourceRef.current = null; }
+      if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+      // Disable all macOS/WebKit audio preprocessing — critical for line-in fidelity
+      // and for tempo detection (AGC in particular destroys transient envelopes).
+      const audioConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      };
+      if (audioInputDeviceId) {
+        audioConstraints.deviceId = { exact: audioInputDeviceId };
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       micStreamRef.current = stream;
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
       micSourceRef.current = source;
-    } catch(e) { console.warn('Mic access denied:', e); }
-  }, [ensureContext]);
+    } catch(e) {
+      // Fall back to default input if the exact deviceId failed (e.g. cable unplugged)
+      console.warn('Audio input access denied or device unavailable:', e);
+      if (audioInputDeviceId) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+          micStreamRef.current = stream;
+          const source = ctx.createMediaStreamSource(stream);
+          source.connect(analyserRef.current);
+          micSourceRef.current = source;
+        } catch(e2) { console.warn('Fallback input also failed:', e2); }
+      }
+    }
+  }, [ensureContext, audioInputDeviceId]);
 
   const stopMic = useCallback(() => {
     if (micSourceRef.current) { micSourceRef.current.disconnect(); micSourceRef.current = null; }
@@ -2765,6 +2826,12 @@ function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioM
     const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     const freqArray = new Uint8Array(analyser.frequencyBinCount);
+    const prevFreqArray = new Uint8Array(analyser.frequencyBinCount);
+    // Rolling state for live BPM detection (spectral-flux onsets + IOI histogram)
+    const fluxHistory = [];    // last ~2s of {t, flux}
+    const onsets = [];         // timestamps (ms) of detected onsets in last 8s
+    let lastOnsetT = 0;
+    let lastBpmCalcT = 0;
     const analyse = () => {
       if (!analyserRef.current) return;
       analyserRef.current.getByteTimeDomainData(dataArray);
@@ -2773,6 +2840,7 @@ function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioM
       const rms = Math.sqrt(sum / dataArray.length);
       if (onLevel) onLevel(rms);
       analyserRef.current.getByteFrequencyData(freqArray);
+      // ── Existing low-band beat flash (kept unchanged) ──
       let lowEnergy = 0;
       for (let i = 0; i < 10; i++) lowEnergy += freqArray[i];
       lowEnergy /= 10;
@@ -2782,11 +2850,64 @@ function useAudioEngine({ bpm, playing, playhead, audioMode, audioVolume, audioM
         beatCooldownRef.current = now + (60000 / (bpm || 120)) * 0.4;
       }
       prevEnergyRef.current = prevEnergyRef.current * 0.85 + lowEnergy * 0.15;
+      // ── Spectral flux for live BPM (onset detection over full spectrum) ──
+      let flux = 0;
+      for (let i = 0; i < freqArray.length; i++) {
+        const d = freqArray[i] - prevFreqArray[i];
+        if (d > 0) flux += d;
+        prevFreqArray[i] = freqArray[i];
+      }
+      fluxHistory.push({ t: now, flux });
+      while (fluxHistory.length > 0 && now - fluxHistory[0].t > 2000) fluxHistory.shift();
+      // Adaptive onset: median * 1.6 + floor; min 100ms between onsets (≤600 BPM)
+      if (fluxHistory.length >= 20) {
+        // Cheap median: sample every 3rd entry, sort
+        const samples = [];
+        for (let i = 0; i < fluxHistory.length; i += 3) samples.push(fluxHistory[i].flux);
+        samples.sort((a,b)=>a-b);
+        const median = samples[samples.length>>1];
+        const thresh = median * 1.6 + 400;
+        if (flux > thresh && now - lastOnsetT > 100 && flux > 600) {
+          onsets.push(now);
+          lastOnsetT = now;
+        }
+      }
+      while (onsets.length > 0 && now - onsets[0] > 8000) onsets.shift();
+      // Recompute live BPM every 500ms from pairwise inter-onset intervals
+      if (now - lastBpmCalcT > 500 && onsets.length >= 6) {
+        lastBpmCalcT = now;
+        const histogram = {}; // keyed by BPM bucket (0.5 BPM resolution)
+        const recent = [];
+        for (let i = 0; i < onsets.length; i++) if (now - onsets[i] <= 6000) recent.push(onsets[i]);
+        for (let i = 0; i < recent.length; i++) {
+          for (let j = i+1; j < recent.length && j < i+8; j++) {
+            const dt = recent[j] - recent[i];
+            if (dt < 200 || dt > 2000) continue;   // 30–300 BPM raw range
+            let b = 60000 / dt;
+            // Fold to 60–180 BPM (lighting-useful range)
+            while (b < 60) b *= 2;
+            while (b > 180) b /= 2;
+            if (b < 60 || b > 180) continue;
+            const bucket = Math.round(b * 2) / 2;
+            histogram[bucket] = (histogram[bucket] || 0) + 1;
+          }
+        }
+        let peakBpm = 0, peakCount = 0, totalCount = 0;
+        for (const k in histogram) {
+          totalCount += histogram[k];
+          if (histogram[k] > peakCount) { peakCount = histogram[k]; peakBpm = parseFloat(k); }
+        }
+        if (peakBpm > 0 && totalCount > 0 && onLiveBpm) {
+          // Confidence = peak share of total mass (0..1)
+          const confidence = peakCount / totalCount;
+          onLiveBpm(peakBpm, confidence);
+        }
+      }
       analysisFrameRef.current = requestAnimationFrame(analyse);
     };
     analysisFrameRef.current = requestAnimationFrame(analyse);
     return () => cancelAnimationFrame(analysisFrameRef.current);
-  }, [audioMode, bpm, onLevel, onBeat, ctxReady, ensureContext]);
+  }, [audioMode, bpm, onLevel, onBeat, onLiveBpm, ctxReady, ensureContext]);
 
   useEffect(() => {
     if (audioMode === 'mic') { ensureContext(); startMic(); }
@@ -2877,14 +2998,14 @@ const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,p
   const beatToX=b=>b*bw;
   return(
     <div style={{position:"absolute",top:rulerH+waveformH+y,width:LABEL_W+PARAM_LABEL_W+totalW,height:h,display:"flex",background:isMuted?"#0d0d10":ri%2===0?"#000":"#06060a",borderBottom:"1px solid rgba(255,255,255,0.04)",contain:"layout paint"}}>
-      <div style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",justifyContent:"center",gap:2,padding:"0 3px"}}>
+      <div data-nograb="true" style={{width:LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.04)",display:"flex",alignItems:"center",justifyContent:"center",gap:2,padding:"0 3px"}}>
         <div onClick={onFloorClick} className={hasFloor?"floor-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:hasFloor?"#00ff4418":"transparent",border:hasFloor?"1px solid #00ff4455":"1px solid #1e2230",color:hasFloor?"#00ff44":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Floor (min level)">{hasFloor?floorVal:"FLR"}</div>
         <div onClick={onValueClick} className={overrideVal!==undefined?"park-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:overrideVal!==undefined?"#ff002218":"transparent",border:overrideVal!==undefined?"1px solid #ff002255":"1px solid #1e2230",color:overrideVal!==undefined?"#ff2244":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Park (fixed value)">{overrideVal!==undefined?overrideVal:"PRK"}</div>
         <button onClick={onMuteToggle} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:isMuted?"#ff440028":"transparent",border:isMuted?"1px solid #ff440066":"1px solid #1e2230",color:isMuted?"#ff6633":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Blackout">B.O</button>
         <button onClick={onSoloToggle} className={isSoloed?"solo-flash":""} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:isSoloed?"#ffcc0028":"transparent",border:isSoloed?"1px solid #ffcc0066":"1px solid #1e2230",color:isSoloed?"#ffcc00":"#445",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="Solo">SOL</button>
         <button onClick={onLmeToggle} className={lmeAssigned?'lme-flash':''} style={{padding:"2px 4px",fontSize:7,fontWeight:"bold",background:lmeAssigned?"#00ffee18":"transparent",border:lmeAssigned?"1px solid #00ffee55":"1px solid #1e2230",color:lmeAssigned?"#00ffee":"#334",borderRadius:3,cursor:"pointer",lineHeight:1.2}} title="LME">LME</button>
       </div>
-      <div style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
+      <div data-nograb="true" style={{width:PARAM_LABEL_W,flexShrink:0,borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",padding:"0 5px",gap:3}}>
         <div style={{width:3,height:20,borderRadius:1,background:param.color,opacity:isMuted?0.25:0.8,flexShrink:0}}/>
         <div onClick={onLaneSelect} style={{flex:1,minWidth:0,opacity:isMuted?0.35:1,cursor:"pointer"}}>
           <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",whiteSpace:"nowrap",overflow:"hidden"}}>{param.label}</div>
@@ -2967,13 +3088,14 @@ const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,p
   return true;
 });
 
-const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudioMode, audioFileName, audioLevel, beatDetected, detectedBpm, audioVolume, setAudioVolume, audioMuted, setAudioMuted, onFileLoad, bpm, setBpm }) {
+const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudioMode, audioFileName, audioLevel, beatDetected, detectedBpm, audioVolume, setAudioVolume, audioMuted, setAudioMuted, onFileLoad, bpm, setBpm, audioInputDevices, audioInputDeviceId, setAudioInputDeviceId, liveBpm, liveBpmConfidence, autoSyncMode, setAutoSyncMode, systemAudioDevices }) {
   const fileInputRef = useRef(null);
+  const modeLabel = { none:'NONE', file:'FILE', mic:'INPUT' };
   return (
     <div style={{height:30,background:'#14121a',borderBottom:'1px solid #2a2040',display:'flex',alignItems:'center',padding:'0 14px',gap:8,flexShrink:0}}>
       <div style={{display:'flex',gap:2}}>
         {['none','file','mic'].map(mode => (
-          <button key={mode} onClick={()=>setAudioMode(mode)} style={{padding:'2px 8px',fontSize:9,fontWeight:audioMode===mode?'bold':'normal',background:audioMode===mode?'#221a2e':'#0c0e12',border:`1px solid ${audioMode===mode?'#aa66dd':'#2a2040'}`,color:audioMode===mode?'#aa66dd':'#555',borderRadius:3,cursor:'pointer',letterSpacing:1}}>{mode.toUpperCase()}</button>
+          <button key={mode} onClick={()=>setAudioMode(mode)} style={{padding:'2px 8px',fontSize:9,fontWeight:audioMode===mode?'bold':'normal',background:audioMode===mode?'#221a2e':'#0c0e12',border:`1px solid ${audioMode===mode?'#aa66dd':'#2a2040'}`,color:audioMode===mode?'#aa66dd':'#555',borderRadius:3,cursor:'pointer',letterSpacing:1}}>{modeLabel[mode]}</button>
         ))}
       </div>
       <div style={{width:1,height:18,background:'#2a2040'}}/>
@@ -2981,7 +3103,55 @@ const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudi
         <input ref={fileInputRef} type="file" accept="audio/*" onChange={e=>e.target.files[0]&&onFileLoad(e.target.files[0])} style={{display:'none'}}/>
         <button onClick={()=>fileInputRef.current.click()} style={{padding:'2px 10px',fontSize:9,background:'#0c0e12',border:'1px solid #252930',color:'#888',borderRadius:3,cursor:'pointer'}}>{audioFileName||'Load Audio...'}</button>
       </>}
-      {audioMode==='mic'&&<span style={{fontSize:9,color:'#ff5544'}}>{"\u23FA"} MIC LIVE</span>}
+      {audioMode==='mic'&&<>
+        <span style={{fontSize:9,color:'#ff5544'}}>{"\u23FA"} LIVE</span>
+        <select value={audioInputDeviceId||''} onChange={async e=>{
+          const val = e.target.value;
+          if (val && val.startsWith('__sys__')) {
+            const devName = val.replace('__sys__','');
+            try {
+              const resp = await fetch('/api/set-default-input', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: devName }) });
+              const result = await resp.json();
+              if (result.ok) {
+                // Switched — show toast-like feedback then restart mic on default input
+                setAudioInputDeviceId(null);
+                // Nudge mic mode to re-read the new default
+                setTimeout(()=>{ setAudioMode('none'); setTimeout(()=>setAudioMode('mic'), 150); }, 100);
+              } else {
+                const reason = result.reason === 'helper-missing'
+                  ? 'CoreAudio helper is missing from this build. Reinstall the DMG.'
+                  : ('Device switch failed: ' + (result.error || 'unknown error'));
+                fetch('/api/open-sound-prefs', { method:'POST' }).catch(()=>{});
+                setAudioInputDeviceId(null);
+                alert(reason + '\n\nSystem Settings is opening. Pick "' + devName + '" as the Input device there, then come back and choose "Default Input".');
+              }
+            } catch(err) {
+              fetch('/api/open-sound-prefs', { method:'POST' }).catch(()=>{});
+              setAudioInputDeviceId(null);
+              alert('Server error: ' + (err.message || err) + '\n\nPick "' + devName + '" as Default Input in System Settings → Sound → Input.');
+            }
+          } else {
+            setAudioInputDeviceId(val||null);
+          }
+        }} style={{padding:'2px 6px',fontSize:9,background:'#0c0e12',border:'1px solid #252930',color:'#aaa',borderRadius:3,cursor:'pointer',maxWidth:220}} title="Audio input device">
+          <option value="">Default Input (System Pref)</option>
+          {audioInputDevices.map((d,i)=>(
+            <option key={d.deviceId||i} value={d.deviceId}>{d.label||`Input ${i+1}`}</option>
+          ))}
+          {/* Show ALL system-detected devices. Only skip exact-name matches against labeled WebRTC devices. */}
+          {(systemAudioDevices||[]).filter(sd => {
+            const sdName = (sd.name||'').trim().toLowerCase();
+            if (!sdName) return false;
+            return !audioInputDevices.some(wd => {
+              const wdLabel = (wd.label||'').trim().toLowerCase();
+              if (!wdLabel) return false;        // ignore unlabeled WebRTC devices
+              return wdLabel === sdName;          // only hide exact duplicates
+            });
+          }).map((sd,i)=>(
+            <option key={'sys-'+i} value={'__sys__'+sd.name} style={{color:'#ff8800'}}>{sd.name}</option>
+          ))}
+        </select>
+      </>}
       {audioMode!=='none'&&<>
         <div style={{width:80,height:8,background:'#0c0e12',borderRadius:2,overflow:'hidden',border:'1px solid #1e222a'}}>
           <div style={{height:'100%',width:`${Math.min(100,audioLevel*300)}%`,background:audioLevel>0.6?'#ff5544':audioLevel>0.3?'#e8aa22':'#44ffaa',borderRadius:2,transition:'width 0.05s'}}/>
@@ -2991,6 +3161,17 @@ const AudioControlBar = React.memo(function AudioControlBar({ audioMode, setAudi
       {detectedBpm&&audioMode==='file'&&<>
         <span style={{fontSize:9,color:'#44ffaa',letterSpacing:0.5}}>SYNC: {detectedBpm}{"\u2192"}{bpm} BPM ({(bpm/detectedBpm).toFixed(2)}x)</span>
         <button onClick={()=>setBpm(detectedBpm)} style={{padding:'2px 8px',fontSize:9,background:'#0c0e12',border:'1px solid #252930',color:'#888',borderRadius:3,cursor:'pointer'}}>Match BPM</button>
+      </>}
+      {audioMode==='mic'&&liveBpm&&<>
+        <span style={{fontSize:9,color:liveBpmConfidence>0.15?'#44ffaa':'#555',letterSpacing:0.5}} title={`Confidence ${Math.round(liveBpmConfidence*100)}%`}>
+          LIVE: {liveBpm.toFixed(1)} BPM
+        </span>
+        <button onClick={()=>setAutoSyncMode(autoSyncMode==='follow'?'off':'follow')} style={{padding:'2px 8px',fontSize:9,background:autoSyncMode==='follow'?'#0e2018':'#0c0e12',border:`1px solid ${autoSyncMode==='follow'?'#44cc44':'#252930'}`,color:autoSyncMode==='follow'?'#44ffaa':'#888',borderRadius:3,cursor:'pointer',fontWeight:autoSyncMode==='follow'?'bold':'normal',letterSpacing:0.5}} title="Continuously match Lumina BPM to the detected live tempo">
+          SYNC {autoSyncMode==='follow'?'ON':'OFF'}
+        </button>
+        {autoSyncMode!=='follow'&&<button onClick={()=>setBpm(Math.round(liveBpm))} style={{padding:'2px 8px',fontSize:9,background:'#0c0e12',border:'1px solid #252930',color:'#888',borderRadius:3,cursor:'pointer'}} title="Apply detected BPM once">
+          Match
+        </button>}
       </>}
       {audioMode!=='none'&&<div style={{display:'flex',alignItems:'center',gap:4,marginLeft:'auto'}}>
         <button onClick={()=>setAudioMuted(m=>!m)} style={{padding:'2px 6px',fontSize:9,background:audioMuted?'#ff554422':'#0c0e12',border:`1px solid ${audioMuted?'#ff5544':'#252930'}`,color:audioMuted?'#ff5544':'#888',borderRadius:3,cursor:'pointer',fontWeight:audioMuted?'bold':'normal'}}>{audioMuted?'MUTED':'MUTE'}</button>
@@ -3009,6 +3190,20 @@ function LightingTimeline() {
   const [midiAutoMap, setMidiAutoMap] = useState(()=>{ try { return localStorage.getItem("lumina-midi-automap")==="true"; } catch(e){ return false; } });
   useEffect(()=>{ localStorage.setItem("lumina-midi-automap",midiAutoMap?"true":"false"); },[midiAutoMap]);
   const midiAutoMapFixtureCount = useRef(null);
+  // User-adjustable MIDI note transpose (semitones). Shifts incoming notes before map lookup so user can calibrate to their controller's octave convention.
+  const [midiNoteOffset, setMidiNoteOffset] = useState(()=>{ try { const v=parseInt(localStorage.getItem("lumina-midi-note-offset")); return isNaN(v)?0:v; } catch(e){ return 0; } });
+  useEffect(()=>{ try { localStorage.setItem("lumina-midi-note-offset", String(midiNoteOffset)); } catch(e){} window.__midiNoteOffset = midiNoteOffset; },[midiNoteOffset]);
+
+  // --- ESP32 LED bridge state (USB serial, 54 WS2812 pixels grouped as 19 notes) ---
+  const [ledPorts, setLedPorts] = useState([]);
+  const [ledPort, setLedPort] = useState(()=>{ try { return localStorage.getItem("lumina-led-port")||""; } catch(e){ return ""; } });
+  const [ledConnected, setLedConnected] = useState(false);
+  const [ledEnabled, setLedEnabled] = useState(()=>{ try { return localStorage.getItem("lumina-led-enabled")==="true"; } catch(e){ return false; } });
+  const [ledBrightness, setLedBrightness] = useState(()=>{ try { const v=parseInt(localStorage.getItem("lumina-led-brightness")); return isNaN(v)?180:v; } catch(e){ return 180; } });
+  const [ledStatus, setLedStatus] = useState("");
+  useEffect(()=>{ try { localStorage.setItem("lumina-led-enabled", ledEnabled?"true":"false"); } catch(e){} },[ledEnabled]);
+  useEffect(()=>{ try { localStorage.setItem("lumina-led-brightness", String(ledBrightness)); } catch(e){} },[ledBrightness]);
+  useEffect(()=>{ try { localStorage.setItem("lumina-led-port", ledPort||""); } catch(e){} },[ledPort]);
   const [midiLearn, setMidiLearn] = useState(null);
   const [midiMap, setMidiMap] = useState(() => { try { return JSON.parse(localStorage.getItem("lumina-midi-map")) || {}; } catch(e) { return {}; } });
   const [midiValueMode, setMidiValueMode] = useState(()=>{ try { return localStorage.getItem("lumina-midi-value-mode")||"velocity"; } catch(e){ return "velocity"; } });
@@ -3058,12 +3253,34 @@ function LightingTimeline() {
     ws.send(JSON.stringify({type:'midi_scan'}));
     serverMidiRef.current = true;
   }, [midiConnected]);
-  const [fixtures, setFixtures] = useState(() => { try { return JSON.parse(localStorage.getItem("lumina-fixtures")) || defaultFixtures(); } catch(e) { return defaultFixtures(); } });
+  const [fixtures, setFixtures] = useState(() => {
+    const OLD_COLORS = new Set(["#ff5544","#44aaff","#ffdd44","#aa44ff","#44ffaa","#8844ff","#ff8844","#cccccc","#ff2200","#0055ff","#00cc00","#ff00cc","#00ccff"]);
+    try {
+      const saved = JSON.parse(localStorage.getItem("lumina-fixtures"));
+      if (saved) {
+        // Migrate: re-apply TYPE_COLORS for any fixture still using an old palette color
+        return saved.map(f => {
+          if (OLD_COLORS.has((f.color||'').toLowerCase()) && TYPE_COLORS[f.type]) {
+            return { ...f, color: TYPE_COLORS[f.type] };
+          }
+          return f;
+        });
+      }
+    } catch(e) {}
+    return defaultFixtures();
+  });
+  // Pad map: array of fixture IDs (or null) — one entry per pad slot. Used when padMapMode === "custom".
+  const [padMap, setPadMap] = useState(()=>{ try { return JSON.parse(localStorage.getItem("lumina-padmap")) || []; } catch(e) { return []; } });
+  const [padMapMode, setPadMapMode] = useState(()=> localStorage.getItem("lumina-padmap-mode") || "auto");
+  useEffect(()=>{ try { localStorage.setItem("lumina-padmap", JSON.stringify(padMap)); } catch(e){} }, [padMap]);
+  useEffect(()=>{ try { localStorage.setItem("lumina-padmap-mode", padMapMode); } catch(e){} }, [padMapMode]);
+  // Pad-slot picker popup state for Fixture Manager assignments
+  const [padPickerState, setPadPickerState] = useState(null); // {kind:'fixture'|'group', fxId?, members?:[ids], label?, rect}
   useEffect(()=>{
     if(midiAutoMapFixtureCount.current === null) { midiAutoMapFixtureCount.current = fixtures.length; return; }
     if(!midiAutoMap || fixtures.length === midiAutoMapFixtureCount.current) { midiAutoMapFixtureCount.current = fixtures.length; return; }
     midiAutoMapFixtureCount.current = fixtures.length;
-    const whiteKeys=[];for(let n=41;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}
+    const whiteKeys=[];for(let n=36;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}
     setMidiMap(prev=>{const newMap={...prev};
       Object.keys(newMap).forEach(k=>{const v=newMap[k];if(typeof v==="number")delete newMap[k];});
       fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});
@@ -3333,6 +3550,19 @@ function LightingTimeline() {
   const [detectedBpm,setDetectedBpm] = useState(null);
   const [audioVolume,setAudioVolume] = useState(0.8);
   const [audioMuted,setAudioMuted] = useState(false);
+  // ── Audio Input (Line In / Mic) device selection ──
+  const [audioInputDevices,setAudioInputDevices] = useState([]);
+  const [systemAudioDevices,setSystemAudioDevices] = useState([]); // from macOS Core Audio via server
+  const [audioInputDeviceId,setAudioInputDeviceIdRaw] = useState(()=>{try{return localStorage.getItem("lumina-audio-input-device")||null;}catch(e){return null;}});
+  const setAudioInputDeviceId = useCallback(id=>{setAudioInputDeviceIdRaw(id);try{if(id)localStorage.setItem("lumina-audio-input-device",id);else localStorage.removeItem("lumina-audio-input-device");}catch(e){}},[]);
+  // ── Live BPM tracker (continuous auto-sync) ──
+  const [liveBpm,setLiveBpm] = useState(null);
+  const [liveBpmConfidence,setLiveBpmConfidence] = useState(0);
+  const [autoSyncMode,setAutoSyncModeRaw] = useState(()=>{try{return localStorage.getItem("lumina-auto-sync")||"off";}catch(e){return "off";}});
+  const setAutoSyncMode = useCallback(m=>{setAutoSyncModeRaw(m);try{localStorage.setItem("lumina-auto-sync",m);}catch(e){}},[]);
+  const autoSyncModeRef = useRef(autoSyncMode); autoSyncModeRef.current = autoSyncMode;
+  const audioModeForSyncRef = useRef(audioMode); audioModeForSyncRef.current = audioMode;
+  const lastSyncApplyRef = useRef(0);
   const [waveformPeaks,setWaveformPeaks] = useState(null);
   const [audioDurationBeats,setAudioDurationBeats] = useState(0);
   const [scrollLeft,setScrollLeft] = useState(0);
@@ -3975,7 +4205,87 @@ function LightingTimeline() {
     setAudioFileName(fileName);
   }, []);
 
-  const audioEngine = useAudioEngine({ bpm, playing, playhead: displayPlayhead, audioMode, audioVolume, audioMuted, onLevel: handleAudioLevel, onBeat: handleBeat, onFileLoaded: handleFileLoaded });
+  // Live BPM handler — called by useAudioEngine every ~500ms when enough onsets are detected.
+  // In FOLLOW mode we smoothly chase the detected tempo, snapping to the nearest octave
+  // of the current BPM to avoid half-/double-tempo flips, and rate-limited to avoid jitter.
+  const handleLiveBpm = useCallback((detBpm, confidence) => {
+    setLiveBpm(detBpm);
+    setLiveBpmConfidence(confidence);
+    if (autoSyncModeRef.current !== 'follow') return;
+    if (audioModeForSyncRef.current !== 'mic') return; // only sync from live input
+    if (confidence < 0.15) return;
+    const now = performance.now();
+    if (now - lastSyncApplyRef.current < 250) return;
+    lastSyncApplyRef.current = now;
+    setBpm(current => {
+      // Octave snap: try detBpm, detBpm/2, detBpm*2 — pick closest to current
+      const candidates = [detBpm, detBpm/2, detBpm*2];
+      let best = detBpm, bestDist = Math.abs(detBpm - current);
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i];
+        const d = Math.abs(c - current);
+        if (d < bestDist) { bestDist = d; best = c; }
+      }
+      // If the snap is still too far (>30 BPM), the detection is probably wrong — ignore
+      if (bestDist > 30) return current;
+      // Smooth: EMA toward target
+      const smoothed = current * 0.7 + best * 0.3;
+      return Math.round(Math.max(30, Math.min(300, smoothed)));
+    });
+  }, []);
+
+  // Device enumeration — refresh on mount, on devicechange, and after mic starts
+  // (labels are only populated once getUserMedia has granted permission once).
+  // Also fetches macOS Core Audio devices from the server for devices WKWebView doesn't expose.
+  useEffect(() => {
+    // Fetch system-level audio devices from server (Core Audio via system_profiler)
+    fetch('/api/audio-devices').then(r=>r.json()).then(data=>{
+      if (data && data.inputs) setSystemAudioDevices(data.inputs);
+    }).catch(()=>{});
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    const refresh = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        setAudioInputDevices(inputs);
+        // Auto-pick Mac Line In on first run if no selection and a matching device exists
+        if (!audioInputDeviceId) {
+          const lineIn = inputs.find(d => /line.?in/i.test(d.label || ''));
+          if (lineIn && lineIn.deviceId) setAudioInputDeviceId(lineIn.deviceId);
+        }
+      } catch(e) {}
+    };
+    refresh();
+    if (navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', refresh);
+      return () => { try { navigator.mediaDevices.removeEventListener('devicechange', refresh); } catch(e){} };
+    }
+  }, [audioInputDeviceId, setAudioInputDeviceId]);
+
+  // Re-enumerate shortly after switching to mic mode, so labels populate post-permission.
+  // Also re-fetch system devices.
+  useEffect(() => {
+    if (audioMode !== 'mic') return;
+    const t = setTimeout(async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAudioInputDevices(devices.filter(d => d.kind === 'audioinput'));
+      } catch(e) {}
+      // Re-fetch system devices too
+      fetch('/api/audio-devices').then(r=>r.json()).then(data=>{
+        if (data && data.inputs) setSystemAudioDevices(data.inputs);
+      }).catch(()=>{});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [audioMode]);
+
+  // Clear stale live BPM when leaving mic mode
+  useEffect(() => {
+    if (audioMode !== 'mic') { setLiveBpm(null); setLiveBpmConfidence(0); }
+  }, [audioMode]);
+
+  const audioEngine = useAudioEngine({ bpm, playing, playhead: displayPlayhead, audioMode, audioVolume, audioMuted, audioInputDeviceId, onLevel: handleAudioLevel, onBeat: handleBeat, onFileLoaded: handleFileLoaded, onLiveBpm: handleLiveBpm });
   audioEngineRef.current = audioEngine;
 
   const bw=BEAT_WIDTH*zoom;
@@ -4177,6 +4487,9 @@ function LightingTimeline() {
           ws.send(JSON.stringify({ type:"output_control", enabled:outputConfig.enabled }));
           ws.send(JSON.stringify({ type:"universe_routing", routing:universeRoutingRef.current }));
           if (dmxMonitorOpenRef.current) ws.send(JSON.stringify({ type:"monitor", enabled:true }));
+          // Scan for ESP32 LED bridge ports; auto-reconnect last used port if any
+          try { ws.send(JSON.stringify({ type:"led_scan" })); } catch(e){}
+          try { const savedLed = localStorage.getItem("lumina-led-port"); if (savedLed && localStorage.getItem("lumina-led-enabled")==="true") { setTimeout(()=>{ try { ws.send(JSON.stringify({ type:"led_open", port: savedLed })); } catch(e){} }, 250); } } catch(e){}
         };
         ws.onmessage = (event) => {
           try {
@@ -4191,6 +4504,16 @@ function LightingTimeline() {
                 serverMidiRef.current = false;
                 setTimeout(() => setMidiStatus(''), 3000);
               }
+            }
+            if (msg.type === 'led_ports') {
+              setLedPorts(msg.ports || []);
+              if (msg.activePort) { setLedPort(msg.activePort); setLedConnected(true); }
+            }
+            if (msg.type === 'led_status') {
+              setLedConnected(!!msg.connected);
+              if (msg.error) { setLedStatus('LED: ' + msg.error); setTimeout(()=>setLedStatus(''), 4000); }
+              else if (msg.connected) { setLedStatus('LED connected'); setTimeout(()=>setLedStatus(''), 2000); }
+              else { setLedStatus('LED disconnected'); setTimeout(()=>setLedStatus(''), 2000); }
             }
             if (msg.type === 'midi_status') {
               if (msg.ok && msg.name) {
@@ -4272,6 +4595,78 @@ function LightingTimeline() {
       outputWsRef.current.send(JSON.stringify({ type:"output_control", enabled:outputConfig.enabled }));
     }
   }, [outputConfig.enabled]);
+
+  // --- ESP32 LED frame compute + send ---
+  // Each frame: 19 RGB pixels. LED N = fixture N (1-based, wraps every 19).
+  // Color = fixture's patch color. Unassigned (no MIDI mapping either directly or via a group) = off.
+  // Lit brightness scales with fixture live intensity so you can see pads firing.
+  const ledFrameTimerRef = useRef(null);
+  const lastLedFrameRef = useRef("");
+  const hexToRgb = (hex) => {
+    if (!hex || typeof hex !== "string") return {r:0,g:0,b:0};
+    let h = hex.trim().replace(/^#/, "");
+    if (h.length === 3) h = h.split("").map(c=>c+c).join("");
+    if (h.length !== 6) return {r:0,g:0,b:0};
+    const num = parseInt(h, 16);
+    if (isNaN(num)) return {r:0,g:0,b:0};
+    return { r:(num>>16)&0xff, g:(num>>8)&0xff, b:num&0xff };
+  };
+  useEffect(() => {
+    if (!ledEnabled || !ledConnected) return;
+    lastLedFrameRef.current = ""; // Always resend on reconnect — ESP32 may have reset
+    const computeAndSend = () => {
+      if (!outputWsRef.current || outputWsRef.current.readyState !== WebSocket.OPEN) return;
+      const N = 19;
+      const pixels = Array.from({length:N}, ()=>({r:0,g:0,b:0}));
+      // Build a fast lookup: is this fixture MIDI-assigned (directly or via a group membership)?
+      const mapVals = Object.values(midiMap || {});
+      const directSet = new Set();
+      const groupKeys = [];
+      mapVals.forEach(v => {
+        if (typeof v === "number" || (typeof v === "string" && !v.includes(":"))) directSet.add(v);
+        else if (typeof v === "string" && v.startsWith("grp:")) groupKeys.push(v);
+      });
+      const fixtureMidiAssigned = (fx) => {
+        if (directSet.has(fx.id)) return true;
+        for (const gk of groupKeys) {
+          const parts = gk.split(":");
+          if (parts.length < 3) continue;
+          const kind = parts[1], val = parts.slice(2).join(":");
+          if (kind === "type" && fx.type === val) return true;
+          if (kind === "position" && (fx.position||"FRONT 1") === val) return true;
+          if (kind === "color" && (fx.colorGroup||fx.color) === val) return true;
+        }
+        return false;
+      };
+      const bScale = Math.max(0, Math.min(255, ledBrightness|0)) / 255;
+      fixtures.forEach((fx, idx) => {
+        if (!fixtureMidiAssigned(fx)) return;
+        const ledIdx = idx % N;
+        const rgb = hexToRgb(fx.color || "#ffffff");
+        // Additive blend if multiple fixtures wrap onto the same LED
+        let r = pixels[ledIdx].r + rgb.r * bScale;
+        let g = pixels[ledIdx].g + rgb.g * bScale;
+        let b = pixels[ledIdx].b + rgb.b * bScale;
+        pixels[ledIdx] = { r: Math.min(255, r|0), g: Math.min(255, g|0), b: Math.min(255, b|0) };
+      });
+      // Send every frame — no dedup (needed to beat the ESP32 5s watchdog)
+      outputWsRef.current.send(JSON.stringify({ type:"led_frame", pixels }));
+    };
+    // Debounce via interval (30 Hz cap)
+    if (ledFrameTimerRef.current) clearInterval(ledFrameTimerRef.current);
+    ledFrameTimerRef.current = setInterval(computeAndSend, 33);
+    computeAndSend();
+    return () => { if (ledFrameTimerRef.current) { clearInterval(ledFrameTimerRef.current); ledFrameTimerRef.current = null; } };
+  }, [ledEnabled, ledConnected, fixtures, midiMap, ledBrightness]);
+
+  // On LED disable or disconnect, clear the strip by sending one black frame
+  useEffect(() => {
+    if (ledEnabled && ledConnected) return;
+    if (!outputWsRef.current || outputWsRef.current.readyState !== WebSocket.OPEN) return;
+    const pixels = Array.from({length:19}, ()=>({r:0,g:0,b:0}));
+    try { outputWsRef.current.send(JSON.stringify({ type:"led_frame", pixels })); } catch(e){}
+    lastLedFrameRef.current = "";
+  }, [ledEnabled, ledConnected]);
 
   // Send config updates when protocol settings change
   useEffect(() => {
@@ -4463,7 +4858,7 @@ function LightingTimeline() {
     "act:loop_out":()=>{setLoopEnabled(false);playheadRef.current=stateRef.current.loopEnd;setDisplayPlayhead(stateRef.current.loopEnd);if(stateRef.current.audioMode==="file"&&playingRef.current)audioEngineRef.current?.seekTo(stateRef.current.loopEnd);},
     "act:tap":handleTap,
     "pad-selfix":()=>{const sc=selectedCuesRef.current;const c=cuesRef.current;if(sc.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(c.map(x=>x.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=c.filter(x=>sc.has(x.id));const params=new Set(sel.map(x=>x.param));const fxIds=new Set(sel.map(x=>x.fixtureId));const newSel=new Set();c.forEach(x=>{if(fxIds.has(x.fixtureId)&&params.has(x.param))newSel.add(x.id);});setSelectedCues(newSel);},
-    "pad-dup":()=>{const len=fxEndRef.current-fxStartRef.current;setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(s=>s+(fxEndRef.current-fxStartRef.current));setFxEnd(s=>s+(fxEndRef.current-fxStartRef.current));setSelectedCues(new Set());flashScreen("#ff8844");},
+    "pad-close":()=>{setPopupPos(null);setAddSelectMode(false);setAddOnceMode(false);},
     "pad-delete":()=>{setCues(prev=>prev.filter(c=>!selectedCuesRef.current.has(c.id)),"delete cues");setSelectedCues(new Set());setSelectedCue(null);flashScreen("#ff4444");},
     "pad-selall":()=>{const sc=selectedCuesRef.current;const c=cuesRef.current;if(sc.size===0){if(window.__selFixTime&&Date.now()-window.__selFixTime<300){window.__selFixTime=null;setSelectedCues(new Set(c.map(x=>x.id)));flashScreen("#44ff44");return;}window.__selAllTime=Date.now();return;}const sel=c.filter(x=>sc.has(x.id));const params=new Set(sel.map(x=>x.param));const newSel=new Set();c.forEach(x=>{if(params.has(x.param))newSel.add(x.id);});setSelectedCues(newSel);},
     "pad-dupfx":()=>{const len=fxEndRef.current-fxStartRef.current;setCues(prev=>{const sel=prev.filter(c=>selectedCuesRef.current.has(c.id)&&c.beat>=fxStartRef.current&&c.beat<fxEndRef.current);if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];});setFxStart(s=>s+(fxEndRef.current-fxStartRef.current));setFxEnd(s=>s+(fxEndRef.current-fxStartRef.current));setSelectedCues(new Set());},
@@ -4526,6 +4921,10 @@ function LightingTimeline() {
   },[handleTimelineWheel,zoom]);
   const handleGridMouseDown=e=>{
     if(e.target.dataset.cue) return;
+    // Bail out when the click started on an interactive control (button or anything
+    // flagged data-nograb). Otherwise box-select overlay gets set, covers the button,
+    // and swallows the mouseup so the button's onClick never fires.
+    if(e.target.closest && e.target.closest('button,select,input,textarea,[data-nograb]')) return;
     if(e.preventDefault) e.preventDefault();
     try{window.getSelection&&window.getSelection().removeAllRanges();}catch(_){}
     const rect=timelineRef.current.getBoundingClientRect();
@@ -4869,7 +5268,7 @@ function LightingTimeline() {
   const noteNameApp=n=>NOTE_NAMES_APP[n%12]+(Math.floor(n/12)-1);
   const mmcLabelApp=c=>({1:"STOP",2:"PLAY",3:"DPLY",4:"FF",5:"REW",6:"REC",7:"RECX",9:"RECP"}[c]||("MMC"+c));
   const midiKeyLabelApp=k=>{if(!k)return null;if(typeof k==="string"&&k.startsWith("cc:"))return "CC"+k.slice(3);if(typeof k==="string"&&k.startsWith("mmc:"))return mmcLabelApp(parseInt(k.slice(4)));const n=parseInt(k);return isNaN(n)?k:noteNameApp(n);};
-  const midiBtn=(actId,origClick)=>()=>{if(midiLearn==="waiting"){if(reverseActionMap[actId]!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k=>{if(next[k]===actId)delete next[k];});return next;});setMidiLearn(null);if(window.__midiLearnState)window.__midiLearnState.learn=null;}else{setMidiLearn(actId);if(window.__midiLearnState)window.__midiLearnState.learn=actId;}return;}origClick();};
+  const midiBtn=(actId,origClick)=>()=>{if(midiLearn==="waiting"||midiLearn!==null){if(reverseActionMap[actId]!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k=>{if(next[k]===actId)delete next[k];});return next;});}setMidiLearn(actId);if(window.__midiLearnState)window.__midiLearnState.learn=actId;return;}origClick();};
   const midiTag=actId=>{const k=reverseActionMap[actId];return k!==undefined?midiKeyLabelApp(k):null;};
 
   return (
@@ -4906,7 +5305,7 @@ function LightingTimeline() {
                 setGotoPrompt(true);
               },need:1},
               {label:"\u223F",sub:"DISSOLVE",mid:"pad-dissolve",color:"#4488ff",action:handleDissolve,need:2},
-              {label:"\u29C9",sub:"DUP",mid:"pad-dup",color:"#ff8844",action:()=>{const len=fxEnd-fxStart;setCues(prev=>{const sel=prev.filter(c=>selectedCues.has(c.id));if(sel.length===0)return prev;const newCues=sel.map(c=>({...c,id:genId(),beat:c.beat+len}));return[...prev,...newCues];},"duplicate cues");setFxStart(fxStart+len);setFxEnd(fxEnd+len);setSelectedCues(new Set());flashScreen("#ff8844");},need:1},
+              {label:"\u2715",sub:"CLOSE",mid:"pad-close",color:"#888888",action:()=>{setPopupPos(null);setAddSelectMode(false);setAddOnceMode(false);},need:0},
               /* Row 4: BLACK black, ALIGN R green, QUANT blue, INVERT blue */
               (()=>{const anyMuted=cues.filter(c=>selectedCues.has(c.id)).some(c=>c.muted);return{label:anyMuted?"\uD83D\uDD0A":"\uD83D\uDD07",sub:anyMuted?"UNMUTE":"BLACK",mid:"pad-black",color:"#888888",action:()=>{setCues(prev=>prev.map(c=>selectedCues.has(c.id)?{...c,muted:!anyMuted}:c));},need:1};})(),
               /* NUDGE disabled — kept for future use: {label:"\u25B6",sub:"NUDGE",mid:"pad-nudge",color:"#44cc44",action:()=>{setCues(prev=>{const ids=new Set([...selectedCues]);return prev.map(c=>ids.has(c.id)?{...c,beat:c.beat+1}:c);});},need:1}, */
@@ -5365,7 +5764,7 @@ function LightingTimeline() {
       </div>
 
       {!playMode && <div style={{display:"flex",alignItems:"stretch",background:"#0a0a0e",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-        <div style={{flex:1}}><AudioControlBar audioMode={audioMode} setAudioMode={setAudioMode} audioFileName={audioFileName} audioLevel={audioLevel} beatDetected={beatDetected} detectedBpm={detectedBpm} audioVolume={audioVolume} setAudioVolume={setAudioVolume} audioMuted={audioMuted} setAudioMuted={setAudioMuted} onFileLoad={f=>audioEngine.loadFile(f)} bpm={bpm} setBpm={setBpm}/></div>
+        <div style={{flex:1}}><AudioControlBar audioMode={audioMode} setAudioMode={setAudioMode} audioFileName={audioFileName} audioLevel={audioLevel} beatDetected={beatDetected} detectedBpm={detectedBpm} audioVolume={audioVolume} setAudioVolume={setAudioVolume} audioMuted={audioMuted} setAudioMuted={setAudioMuted} onFileLoad={f=>audioEngine.loadFile(f)} bpm={bpm} setBpm={setBpm} audioInputDevices={audioInputDevices} audioInputDeviceId={audioInputDeviceId} setAudioInputDeviceId={setAudioInputDeviceId} liveBpm={liveBpm} liveBpmConfidence={liveBpmConfidence} autoSyncMode={autoSyncMode} setAutoSyncMode={setAutoSyncMode} systemAudioDevices={systemAudioDevices}/></div>
       </div>}
 
       <div style={{display:"flex",flex:1,overflow:"hidden",padding:"0 6px 0 6px"}}>
@@ -5447,7 +5846,7 @@ function LightingTimeline() {
             {boxSelect&&(()=>{const x1=Math.min(boxSelect.startX,boxSelect.curX),x2=Math.max(boxSelect.startX,boxSelect.curX),y1=Math.min(boxSelect.startY,boxSelect.curY),y2=Math.max(boxSelect.startY,boxSelect.curY);return <div style={{position:"absolute",left:LABEL_W+PARAM_LABEL_W+x1,top:RULER_H+(waveformPeaks?40:0)+y1,width:x2-x1,height:y2-y1,border:"1.5px dashed #e8aa22",background:"rgba(232,170,34,0.18)",borderRadius:3,pointerEvents:"none",zIndex:40,boxShadow:"0 0 0 1px rgba(0,0,0,0.55), 0 0 16px rgba(232,170,34,0.35)"}}/>;})()}
           </div>
         </div>
-        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions}/>}
+        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions} padMap={padMap} setPadMap={setPadMap} padMapMode={padMapMode} setPadMapMode={setPadMapMode}/>}
         </div>
 
         <div style={{width:(rightPanelWide||alwaysWideTabs)?440:220,background:"#141820",display:playMode?"none":"flex",flexDirection:"column",flexShrink:0,overflow:"hidden",transition:"width 0.2s ease",margin:"6px 6px 6px 0",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
@@ -6134,13 +6533,33 @@ function LightingTimeline() {
         const [tikX1,tikY1] = pt(fillEnd, R-14);
         const [tikX2,tikY2] = pt(fillEnd, R-5);
 
+        const bpmMidiId = "slider:bpm-slider";
+        const bpmMidiKey = Object.entries(midiMap).find(([,v]) => v === bpmMidiId)?.[0];
+        const isLearningBpm = midiLearn === bpmMidiId;
         const onKnobDown = (e) => {
           e.preventDefault(); e.stopPropagation();
+          if (midiLearn !== null) {
+            if (bpmMidiKey !== undefined) {
+              setMidiMap(prev => { const next={...prev}; Object.keys(next).forEach(k=>{ if(next[k]===bpmMidiId) delete next[k]; }); return next; });
+            }
+            setMidiLearn(bpmMidiId);
+            if (window.__midiLearnState) window.__midiLearnState.learn = bpmMidiId;
+            return;
+          }
           const sy=e.clientY, sv=curNum, range=pMax-pMin;
           const mv = (me) => setBpmLive(sv + (sy - me.clientY) * (range/180));
           const up = () => { document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); };
           document.addEventListener('pointermove', mv, {passive:false});
           document.addEventListener('pointerup', up);
+        };
+        const onBpmLearnClick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (midiLearn === bpmMidiId) { setMidiLearn(null); if(window.__midiLearnState) window.__midiLearnState.learn=null; return; }
+          if (bpmMidiKey !== undefined) {
+            setMidiMap(prev => { const next={...prev}; Object.keys(next).forEach(k=>{ if(next[k]===bpmMidiId) delete next[k]; }); return next; });
+          }
+          setMidiLearn(bpmMidiId);
+          if (window.__midiLearnState) window.__midiLearnState.learn = bpmMidiId;
         };
 
         const kBtn = {minHeight:48,fontSize:17,fontWeight:'bold',background:'#1e2330',
@@ -6154,9 +6573,20 @@ function LightingTimeline() {
                          borderRadius:14,boxShadow:'0 16px 56px rgba(0,0,0,0.96), 0 0 0 1px '+color+'33',
                          padding:14,display:'flex',flexDirection:'column',gap:7}}>
               {/* Header */}
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6}}>
                 <span style={{fontSize:11,color,fontWeight:'bold',letterSpacing:1}}>BPM</span>
-                <span style={{fontSize:9,color:'#556'}}>{pMin} – {pMax}</span>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <button onClick={onBpmLearnClick}
+                    style={{padding:'3px 8px',fontSize:9,fontWeight:'bold',letterSpacing:1,
+                      background:isLearningBpm?'#2a1a30':(bpmMidiKey?'#1a0f22':'#0c0e12'),
+                      border:'1px solid '+(isLearningBpm?'#cc66ff':(bpmMidiKey?'#aa44ff':'#2a2e3c')),
+                      color:isLearningBpm?'#cc66ff':(bpmMidiKey?'#cc88ff':'#667'),
+                      borderRadius:6,cursor:'pointer',touchAction:'manipulation',
+                      animation:isLearningBpm?'midilearn 1s infinite':'none'}}>
+                    {isLearningBpm ? 'LEARN…' : (bpmMidiKey ? (typeof bpmMidiKey==='string' && bpmMidiKey.startsWith('cc:') ? 'CC'+bpmMidiKey.slice(3) : bpmMidiKey) : 'MIDI')}
+                  </button>
+                  <span style={{fontSize:9,color:'#556'}}>{pMin} – {pMax}</span>
+                </div>
               </div>
               {/* Knob */}
               <div style={{display:'flex',justifyContent:'center',background:'#0c0f16',borderRadius:12,padding:'10px 0'}}>
@@ -7792,10 +8222,10 @@ function LightingTimeline() {
                           profileName = (baseName + modeSuffix).replace(/_+/g,'_').replace(/^_|_$/g,'');
                           if (!DMX_PROFILES[profileName]) {
                             DMX_PROFILES[profileName] = { channels: bestMode.channels, map: bestMode.map };
-                            TYPE_COLORS[profileName] = '#8844ff';
+                            TYPE_COLORS[profileName] = '#ff0000';
                             try {
                               const cp = JSON.parse(localStorage.getItem("lumina-custom-profiles") || "{}");
-                              cp[profileName] = { channels: bestMode.channels, map: bestMode.map, color: '#8844ff' };
+                              cp[profileName] = { channels: bestMode.channels, map: bestMode.map, color: '#ff0000' };
                               localStorage.setItem("lumina-custom-profiles", JSON.stringify(cp));
                             } catch(e) {}
                           }
@@ -7807,10 +8237,10 @@ function LightingTimeline() {
                       const genName = (modelKey || 'MVR') + '_GENERIC';
                       if (!DMX_PROFILES[genName]) {
                         DMX_PROFILES[genName] = { channels: 1, map: { dimmer: {offset:0, bits:8} } };
-                        TYPE_COLORS[genName] = '#8844ff';
+                        TYPE_COLORS[genName] = '#ff0000';
                         try {
                           const cp = JSON.parse(localStorage.getItem("lumina-custom-profiles") || "{}");
-                          cp[genName] = { channels: 1, map: { dimmer: {offset:0, bits:8} }, color: '#8844ff' };
+                          cp[genName] = { channels: 1, map: { dimmer: {offset:0, bits:8} }, color: '#ff0000' };
                           localStorage.setItem("lumina-custom-profiles", JSON.stringify(cp));
                         } catch(e) {}
                       }
@@ -7818,7 +8248,7 @@ function LightingTimeline() {
                     }
                     const pos = mvrPositions[mvr.uuid] || mvr.mappedPosition || 'FRONT 1';
                     const name = mvr.name || (mvr.model ? mvr.model + ' ' + (idx+1) : 'MVR ' + fxId);
-                    const color = TYPE_COLORS[profileName] || POSITION_COLORS[pos] || '#8844ff';
+                    const color = TYPE_COLORS[profileName] || POSITION_COLORS[pos] || '#ff0000';
                     newFixtures.push({ id: fxId, name, color, type: profileName, position: pos });
                     newPatch[fxId] = { universe: mvr.universe, address: mvr.address, profile: profileName, overrides: {} };
                   });
@@ -7957,13 +8387,13 @@ function LightingTimeline() {
                             if(csv.channels>=3){map.pan={offset:1,bits:8};map.tilt={offset:2,bits:8};}
                             if(csv.channels>=6){map.cyan={offset:3,bits:8};map.magenta={offset:4,bits:8};map.yellow={offset:5,bits:8};}
                             DMX_PROFILES[genName]={channels:csv.channels,map};
-                            TYPE_COLORS[genName]='#44aaff';
-                            try{const cp=JSON.parse(localStorage.getItem("lumina-custom-profiles")||"{}");cp[genName]={channels:csv.channels,map,color:'#44aaff'};localStorage.setItem("lumina-custom-profiles",JSON.stringify(cp));}catch(e){}
+                            TYPE_COLORS[genName]='#0000ff';
+                            try{const cp=JSON.parse(localStorage.getItem("lumina-custom-profiles")||"{}");cp[genName]={channels:csv.channels,map,color:'#0000ff'};localStorage.setItem("lumina-custom-profiles",JSON.stringify(cp));}catch(e){}
                           }
                           profileName=genName;
                         }
                         const pos=csvPositions[idx]||'FRONT 1';
-                        const color=TYPE_COLORS[profileName]||POSITION_COLORS[pos]||'#44aaff';
+                        const color=TYPE_COLORS[profileName]||POSITION_COLORS[pos]||'#0000ff';
                         newFixtures.push({id:fxId,name:csv.name,color,type:profileName,position:pos});
                         newPatch[fxId]={universe:csv.universe,address:csv.address,profile:profileName,overrides:{}};
                       });
@@ -8082,18 +8512,18 @@ function LightingTimeline() {
                           map['ch' + (ch+1)] = {offset: ch, bits: 8};
                         }
                         DMX_PROFILES[genName] = { channels: dev.dmxFootprint, map };
-                        TYPE_COLORS[genName] = '#ff8844';
+                        TYPE_COLORS[genName] = '#ff0000';
                         // Save to custom profiles
                         try {
                           const cp = JSON.parse(localStorage.getItem("lumina-custom-profiles") || "{}");
-                          cp[genName] = { channels: dev.dmxFootprint, map, color: '#ff8844' };
+                          cp[genName] = { channels: dev.dmxFootprint, map, color: '#ff0000' };
                           localStorage.setItem("lumina-custom-profiles", JSON.stringify(cp));
                         } catch(e) {}
                       }
                       profileName = genName;
                     }
                     const name = dev.label || (dev.model ? dev.model + ' ' + (idx+1) : 'RDM ' + fxId);
-                    const color = TYPE_COLORS[profileName] || '#ff8844';
+                    const color = TYPE_COLORS[profileName] || '#ff0000';
                     newFixtures.push({ id: fxId, name, color, type: profileName, position: 'FRONT 1' });
                     newPatch[fxId] = { universe: dev.universe, address: dev.dmxAddress, profile: profileName, overrides: {} };
                   });
@@ -8125,6 +8555,59 @@ function LightingTimeline() {
                 <button onClick={()=>setFixtureManagerOpen(false)} style={{padding:"4px 10px",fontSize:11,background:"none",border:"1px solid #333",color:"#666",borderRadius:3,cursor:"pointer"}}>✕</button>
               </div>
             </div>
+            {(()=>{
+              const types=[...new Set(fixtures.map(f=>f.type))].filter(Boolean);
+              const positions=[...new Set(fixtures.map(f=>f.position||"FRONT 1"))].filter(Boolean);
+              // Color groups: prefer explicit f.colorGroup, fall back to grouping by f.color hex
+              const explicitColorGroups=[...new Set(fixtures.map(f=>f.colorGroup||"").filter(Boolean))];
+              const useColorHex = explicitColorGroups.length === 0;
+              const colorGroups = useColorHex
+                ? [...new Set(fixtures.map(f=>f.color))].filter(Boolean)
+                : explicitColorGroups;
+              const colorGroupMembers = (cg) => useColorHex
+                ? fixtures.filter(f=>f.color===cg).map(f=>f.id)
+                : fixtures.filter(f=>f.colorGroup===cg).map(f=>f.id);
+              const colorGroupLabel = (cg) => useColorHex ? cg.toUpperCase() : cg;
+              if(!types.length && !positions.length && !colorGroups.length) return null;
+              const grpBtn=(kind,label,members,color,displayLabel)=>{
+                const grpKey = "grp:"+kind+":"+label;
+                const mappedNoteKey = Object.keys(midiMap).find(k=>midiMap[k]===grpKey);
+                const isLearning = midiLearn === grpKey;
+                const hasNote = mappedNoteKey !== undefined;
+                const noteLabel = hasNote ? midiKeyLabelApp(mappedNoteKey) : "";
+                const startLearn = () => {
+                  if (isLearning) { setMidiLearn(null); return; }
+                  // Clear any existing mapping for this group, then enter learn mode
+                  if (hasNote) setMidiMap(prev=>{const next={...prev}; Object.keys(next).forEach(k=>{if(next[k]===grpKey) delete next[k];}); return next;});
+                  setMidiLearn(grpKey);
+                  if (window.__midiLearnState) window.__midiLearnState.learn = grpKey;
+                };
+                const clearMapping = (e) => { e.stopPropagation(); setMidiMap(prev=>{const next={...prev}; Object.keys(next).forEach(k=>{if(next[k]===grpKey) delete next[k];}); return next;}); };
+                return <button key={kind+":"+label} onClick={startLearn} style={{padding:"4px 8px",fontSize:9,background:isLearning?"#2a2008":(hasNote?color+"33":color+"10"),border:"1px solid "+(isLearning?"#ffcc44":color+"66"),color:isLearning?"#ffcc44":color,borderRadius:4,cursor:"pointer",fontWeight:"bold",letterSpacing:0.5,display:"flex",alignItems:"center",gap:5,animation:isLearning?"midipulse 0.9s ease-in-out infinite":"none"}} title={isLearning?"Press a note on your MIDI controller...":(hasNote?`MIDI ${noteLabel} — fires all ${members.length} fixtures. Click to re-learn.`:`${members.length} fixtures — click then press a MIDI note to assign the whole group to one key.`)}>
+                  {useColorHex && color===label && <span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:label,border:"1px solid rgba(255,255,255,0.2)"}}/>}
+                  <span>{displayLabel||label}</span>
+                  <span style={{opacity:0.55,fontSize:8}}>{members.length}</span>
+                  {hasNote && !isLearning && <span style={{padding:"1px 4px",background:"#1a0a2a",border:"1px solid #7733aa",color:"#bb88ee",borderRadius:2,fontSize:8,fontWeight:"bold"}}>{noteLabel}</span>}
+                  {hasNote && !isLearning && <span onClick={clearMapping} title="Clear MIDI mapping" style={{cursor:"pointer",color:"#ff6666",fontSize:10,lineHeight:1,padding:"0 2px"}}>✕</span>}
+                  {isLearning && <span style={{fontSize:8,color:"#ffcc44"}}>LEARN…</span>}
+                </button>;
+              };
+              return <div style={{padding:"6px 16px 8px",borderBottom:"1px solid #1a1d22",display:"flex",flexDirection:"column",gap:4}}>
+                <div style={{fontSize:8,color:"#e8aa22",letterSpacing:2,fontWeight:"bold"}}>GROUPS → MIDI (one note fires whole group)</div>
+                {types.length>0 && <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
+                  <span style={{fontSize:7,color:"#444",width:48,letterSpacing:1}}>TYPE</span>
+                  {types.map(t=>grpBtn("type",t,fixtures.filter(f=>f.type===t).map(f=>f.id),"#e8aa22"))}
+                </div>}
+                {positions.length>0 && <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
+                  <span style={{fontSize:7,color:"#444",width:48,letterSpacing:1}}>POSITION</span>
+                  {positions.map(p=>grpBtn("position",p,fixtures.filter(f=>(f.position||"FRONT 1")===p).map(f=>f.id),POSITION_COLORS[p]||"#888"))}
+                </div>}
+                {colorGroups.length>0 && <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
+                  <span style={{fontSize:7,color:"#444",width:48,letterSpacing:1}}>COLOR</span>
+                  {colorGroups.map(cg=>grpBtn("color",cg,colorGroupMembers(cg),useColorHex?cg:"#44aaff",colorGroupLabel(cg)))}
+                </div>}
+              </div>;
+            })()}
             <div style={{display:"flex",padding:"6px 16px",gap:4,borderBottom:"1px solid #1a1d22",fontSize:8,color:"#555",letterSpacing:1}}>
               <span style={{width:28,textAlign:"center"}}>#</span>
               <span style={{flex:1}}>NAME</span>
@@ -8132,6 +8615,7 @@ function LightingTimeline() {
               <span style={{width:80}}>POSITION</span>
               <span style={{width:70,textAlign:"center"}}>DMX ADDR</span>
               <span style={{width:36,textAlign:"center"}}>COLOR</span>
+              <span style={{width:64,textAlign:"center"}}>MIDI</span>
               <span style={{width:28}}/>
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"4px 16px 12px"}}>
@@ -8192,7 +8676,20 @@ function LightingTimeline() {
                       </div>
                     )}
                   </div>
-                  <button onClick={()=>{setFixtures(prev=>prev.filter(f=>f.id!==fx.id));}} style={{width:28,height:22,background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff5544",borderRadius:2,cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  {(()=>{
+                    const mappedKey = Object.keys(midiMap).find(k=>midiMap[k]===fx.id);
+                    const isLearning = midiLearn === fx.id;
+                    const label = isLearning ? "LEARN…" : (mappedKey ? midiKeyLabelApp(mappedKey) : "LEARN");
+                    const color = isLearning ? "#ffcc44" : (mappedKey ? "#44ffaa" : "#bb88ee");
+                    return <button onClick={()=>{
+                      if (isLearning) { setMidiLearn(null); return; }
+                      // Clear any existing mapping for this fixture, then enter learn mode
+                      if (mappedKey !== undefined) setMidiMap(prev=>{const next={...prev}; Object.keys(next).forEach(k=>{if(next[k]===fx.id) delete next[k];}); return next;});
+                      setMidiLearn(fx.id);
+                      if (window.__midiLearnState) window.__midiLearnState.learn = fx.id;
+                    }} style={{width:64,height:22,background:isLearning?"#2a2008":(mappedKey?"#0a1a14":"#1a0a2a"),border:"1px solid "+color+(isLearning?"":"66"),color:color,borderRadius:3,cursor:"pointer",fontSize:9,fontWeight:"bold",display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:1,animation:isLearning?"midipulse 0.9s ease-in-out infinite":"none"}} title={mappedKey?`MIDI ${label} — click to re-learn`:"Click then press a MIDI note on your controller"}>{label}</button>;
+                  })()}
+                  <button onClick={()=>{setFixtures(prev=>prev.filter(f=>f.id!==fx.id));setPadMap(prev=>prev.map(id=>id===fx.id?null:id));setMidiMap(prev=>{const next={...prev}; Object.keys(next).forEach(k=>{if(next[k]===fx.id) delete next[k];}); return next;});}} style={{width:28,height:22,background:"#1c0a0a",border:"1px solid #ff333344",color:"#ff5544",borderRadius:2,cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 </div>
                 );
               })}
@@ -8387,6 +8884,100 @@ function LightingTimeline() {
           </div>
         </div>
       )}
+
+      {/* Pad Slot Picker Popup (used by Fixture Manager '→ PAD' buttons and GROUPS strip) */}
+      {padPickerState && (() => {
+        const PADS_PER_PAGE = 19;
+        const pagesShown = 4;
+        const totalSlots = Math.max(padMap.length, PADS_PER_PAGE*pagesShown);
+        const slots = Array.from({length: totalSlots}, (_,i)=> padMap[i] ?? null);
+        const fxLookup = new Map(fixtures.map(f=>[f.id,f]));
+        const isFx = padPickerState.kind === 'fixture';
+        const headerColor = isFx ? "#44ffaa" : "#e8aa22";
+        const handleSlotClick = (slotIdx) => {
+          if (isFx) {
+            const fxId = padPickerState.fxId;
+            setPadMap(prev => {
+              const next = [...prev];
+              while (next.length <= slotIdx) next.push(null);
+              if (next[slotIdx] === fxId) { next[slotIdx] = null; }
+              else { next[slotIdx] = fxId; }
+              return next;
+            });
+          } else {
+            const members = padPickerState.members || [];
+            setPadMap(prev => {
+              const next = [...prev];
+              const end = slotIdx + members.length;
+              while (next.length < end) next.push(null);
+              for (let i=0; i<members.length; i++) next[slotIdx+i] = members[i];
+              return next;
+            });
+            setPadPickerState(null);
+          }
+        };
+        const popW = Math.min(920, window.innerWidth - 32);
+        const popH = Math.min(720, window.innerHeight - 32);
+        const top = Math.max(16, (window.innerHeight - popH) / 2);
+        const left = Math.max(16, (window.innerWidth - popW) / 2);
+        return <>
+          <div onClick={()=>setPadPickerState(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:10003,background:"rgba(0,0,0,0.6)"}}/>
+          <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top,left,width:popW,height:popH,zIndex:10004,background:"#1a1e28",border:"2px solid "+headerColor,borderRadius:12,boxShadow:"0 20px 60px rgba(0,0,0,0.9)",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",alignItems:"center",padding:"16px 20px",borderBottom:"1px solid #2a2f3a",gap:14}}>
+              <span style={{fontSize:14,color:headerColor,fontWeight:"bold",letterSpacing:3}}>{isFx ? "ASSIGN TO PAD (MIDI NOTE)" : "ASSIGN GROUP \u2192 PADS"}</span>
+              <span style={{fontSize:14,color:"#ddd",fontWeight:"bold",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{padPickerState.label||""}</span>
+              {!isFx && <span style={{fontSize:12,color:"#aaa"}}>{padPickerState.members.length} fixtures — click start slot</span>}
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+                {(()=>{
+                  const removeIds = isFx ? [padPickerState.fxId] : (padPickerState.members||[]);
+                  const anyMapped = padMap.some(id => removeIds.includes(id));
+                  if (!anyMapped) return null;
+                  return <button onClick={()=>{ setPadMap(prev => prev.map(id => removeIds.includes(id) ? null : id)); }} style={{padding:"6px 16px",fontSize:12,background:"#2a0e0e",border:"1px solid #ff5544",color:"#ff7766",borderRadius:6,cursor:"pointer",fontWeight:"bold",letterSpacing:2}} title={isFx?"Remove this fixture from all pad slots":"Remove all group members from all pad slots"}>UNASSIGN</button>;
+                })()}
+                <button onClick={()=>setPadPickerState(null)} style={{padding:"6px 12px",fontSize:16,background:"#2a2f3a",border:"1px solid #555",color:"#ccc",borderRadius:6,cursor:"pointer",fontWeight:"bold"}}>✕</button>
+              </div>
+            </div>
+            <div style={{padding:"18px 20px",overflowY:"auto",flex:1}}>
+              {Array.from({length: Math.ceil(totalSlots/PADS_PER_PAGE)}, (_,pageIdx)=>(
+                <div key={pageIdx} style={{marginBottom:16}}>
+                  <div style={{fontSize:11,color:"#6a7a8a",letterSpacing:3,marginBottom:6,fontWeight:"bold"}}>PAGE {pageIdx+1}</div>
+                  <div style={{display:"grid",gridTemplateColumns:`repeat(${PADS_PER_PAGE},1fr)`,gap:5}}>
+                    {Array.from({length: PADS_PER_PAGE}, (_,i)=>{
+                      const slotIdx = pageIdx*PADS_PER_PAGE + i;
+                      const occupantId = slots[slotIdx];
+                      const occupantFx = occupantId!=null ? fxLookup.get(occupantId) : null;
+                      const isCurrent = isFx && occupantId === padPickerState.fxId;
+                      const willOverwrite = !isFx && (() => {
+                        const m = padPickerState.members.length;
+                        for (let k=0; k<m; k++) {
+                          const sId = slots[slotIdx+k];
+                          if (sId != null && sId !== padPickerState.members[k]) return true;
+                        }
+                        return false;
+                      })();
+                      // Gray out occupied slots (assignable still — just visually marked as taken)
+                      const isOccupied = !!occupantFx && !isCurrent;
+                      return <button key={slotIdx} onClick={()=>handleSlotClick(slotIdx)} title={occupantFx?`Slot ${slotIdx+1} (taken: ${occupantFx.name}) — click to overwrite`:`Slot ${slotIdx+1} — empty`} style={{
+                        height:58,padding:0,fontSize:12,fontWeight:"bold",
+                        background: isCurrent ? headerColor : (isOccupied ? "#3a4050" : "#1e222c"),
+                        border: "1.5px solid "+(isCurrent?headerColor:(willOverwrite?"#ff5544": isOccupied ? "#5a6070" : "#3a4050")),
+                        color: isCurrent ? "#000" : (isOccupied ? "#ddd" : "#aab"),
+                        borderRadius:6,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",lineHeight:1.2,position:"relative",gap:2
+                      }}>
+                        <span style={{fontSize:11,opacity:isCurrent?1:0.85,color:isCurrent?"#000":isOccupied?"#eee":"#889",fontWeight:"bold"}}>{slotIdx+1}</span>
+                        <span style={{fontSize:10,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",padding:"0 3px"}}>{occupantFx?occupantFx.name.slice(0,7):""}</span>
+                        {isOccupied && <span style={{position:"absolute",top:3,right:4,width:6,height:6,borderRadius:"50%",background:occupantFx.color,opacity:0.95,boxShadow:"0 0 4px "+occupantFx.color}}/>}
+                      </button>;
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {isFx && <div style={{padding:"10px 20px",borderTop:"1px solid #2a2f3a",fontSize:12,color:"#aab"}}>Click any slot — green = currently assigned (click to clear). Gray = taken by another fixture (click to overwrite). Each pad triggers its mapped MIDI note.</div>}
+            {!isFx && <div style={{padding:"10px 20px",borderTop:"1px solid #2a2f3a",fontSize:12,color:"#aab"}}>Click a starting slot — group will be laid out across {padPickerState.members.length} consecutive pads. Gray = taken (will overwrite, shown with red border).</div>}
+          </div>
+        </>;
+      })()}
 
       {/* Fixture Builder Modal */}
       {fixtureBuilderOpen && (() => {
@@ -9113,10 +9704,45 @@ function LightingTimeline() {
             </div>
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:8}}>MAPPING</div>
             <div style={{display:"flex",gap:4}}>
-              <button onClick={()=>{const whiteKeys=[];for(let n=41;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}const newMap={};fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});setMidiMap(newMap);}} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #aa44ff44",color:"#aa44ff",borderRadius:8,cursor:"pointer"}}>AUTO MAP</button>
+              <button onClick={()=>{const whiteKeys=[];for(let n=36;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}const newMap={};fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});setMidiMap(newMap);}} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #aa44ff44",color:"#aa44ff",borderRadius:8,cursor:"pointer"}}>AUTO MAP</button>
               <button onClick={()=>setMidiMap({})} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #ff444444",color:"#ff4444",borderRadius:8,cursor:"pointer"}}>CLEAR MAP</button>
             </div>
             <button onClick={()=>setMidiAutoMap(v=>!v)} style={{padding:"6px 0",fontSize:9,fontWeight:"bold",background:midiAutoMap?"#1a2a10":"#0c0e12",border:"2px solid "+(midiAutoMap?"#44ff44":"#252930"),color:midiAutoMap?"#44ff44":"#555",borderRadius:8,cursor:"pointer",letterSpacing:1}}>{midiAutoMap?"AUTO REMAP ON FIXTURE CHANGE: ON":"AUTO REMAP ON FIXTURE CHANGE: OFF"}</button>
+            <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:8}}>NOTE TRANSPOSE (CALIBRATE TO CONTROLLER)</div>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+              <button onClick={()=>setMidiNoteOffset(v=>v-12)} title="Shift incoming notes down 1 octave" style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",background:"#0c0e12",border:"2px solid #44aaff44",color:"#44aaff",borderRadius:8,cursor:"pointer"}}>-OCT</button>
+              <button onClick={()=>setMidiNoteOffset(v=>v-1)} title="Shift down 1 semitone" style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",background:"#0c0e12",border:"2px solid #44aaff44",color:"#44aaff",borderRadius:8,cursor:"pointer"}}>-1</button>
+              <div style={{flex:1.2,padding:"6px 0",fontSize:11,fontWeight:"bold",background:"#080a0e",border:"2px solid #aa44ff66",color:midiNoteOffset===0?"#888":"#ffcc44",borderRadius:8,textAlign:"center"}}>{midiNoteOffset>0?"+":""}{midiNoteOffset}</div>
+              <button onClick={()=>setMidiNoteOffset(v=>v+1)} title="Shift up 1 semitone" style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",background:"#0c0e12",border:"2px solid #44aaff44",color:"#44aaff",borderRadius:8,cursor:"pointer"}}>+1</button>
+              <button onClick={()=>setMidiNoteOffset(v=>v+12)} title="Shift incoming notes up 1 octave" style={{flex:1,padding:"6px 0",fontSize:10,fontWeight:"bold",background:"#0c0e12",border:"2px solid #44aaff44",color:"#44aaff",borderRadius:8,cursor:"pointer"}}>+OCT</button>
+              <button onClick={()=>setMidiNoteOffset(0)} title="Reset to 0" style={{padding:"6px 8px",fontSize:9,fontWeight:"bold",background:"#1a0a0a",border:"2px solid #ff444466",color:"#ff6666",borderRadius:8,cursor:"pointer"}}>RESET</button>
+            </div>
+            <div style={{fontSize:8,color:"#556",marginTop:2,lineHeight:1.4}}>If pressing C on the controller triggers the wrong pad in Lumina, adjust here until it matches. Saved per-session.</div>
+
+            <div style={{fontSize:8,color:"#44ccff88",letterSpacing:2,marginTop:10,display:"flex",alignItems:"center",gap:8}}>
+              <span>ESP32 LED STRIP (USB)</span>
+              {ledConnected && <span style={{padding:"1px 5px",fontSize:7,background:"#0a2014",border:"1px solid #44ff88",color:"#44ff88",borderRadius:2}}>CONNECTED</span>}
+              {ledStatus && <span style={{fontSize:8,color:"#ffcc44"}}>{ledStatus}</span>}
+            </div>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+              <select value={ledPort} onChange={e=>setLedPort(e.target.value)} style={{flex:2,padding:"6px 8px",fontSize:9,background:"#080a0e",border:"1px solid #44ccff44",color:"#99ccff",borderRadius:6}}>
+                <option value="">Select USB serial device...</option>
+                {ledPorts.map(p=><option key={p} value={p}>{p.replace("/dev/","")}</option>)}
+              </select>
+              <button onClick={()=>{ if(outputWsRef.current?.readyState===WebSocket.OPEN) outputWsRef.current.send(JSON.stringify({type:"led_scan"})); }} style={{padding:"6px 10px",fontSize:9,fontWeight:"bold",background:"#0c0e12",border:"2px solid #44ccff44",color:"#44ccff",borderRadius:6,cursor:"pointer",letterSpacing:1}}>SCAN</button>
+              {!ledConnected && <button onClick={()=>{ if(!ledPort){setLedStatus("Pick a port first"); setTimeout(()=>setLedStatus(""),2000); return;} if(outputWsRef.current?.readyState===WebSocket.OPEN) outputWsRef.current.send(JSON.stringify({type:"led_open", port: ledPort})); }} style={{padding:"6px 12px",fontSize:9,fontWeight:"bold",background:"#0a1a14",border:"2px solid #44ff88",color:"#44ff88",borderRadius:6,cursor:"pointer",letterSpacing:1}}>CONNECT</button>}
+              {ledConnected && <button onClick={()=>{ if(outputWsRef.current?.readyState===WebSocket.OPEN) outputWsRef.current.send(JSON.stringify({type:"led_close"})); setLedConnected(false); }} style={{padding:"6px 12px",fontSize:9,fontWeight:"bold",background:"#1a0a0a",border:"2px solid #ff6666",color:"#ff6666",borderRadius:6,cursor:"pointer",letterSpacing:1}}>DISCONNECT</button>}
+            </div>
+            <div style={{display:"flex",gap:4,alignItems:"center",marginTop:4}}>
+              <button onClick={()=>setLedEnabled(v=>!v)} style={{flex:1,padding:"6px 0",fontSize:9,fontWeight:"bold",background:ledEnabled?"#0a2014":"#0c0e12",border:"2px solid "+(ledEnabled?"#44ff88":"#252930"),color:ledEnabled?"#44ff88":"#666",borderRadius:6,cursor:"pointer",letterSpacing:1}}>{ledEnabled?"LED OUTPUT: ON":"LED OUTPUT: OFF"}</button>
+              <button onClick={()=>{ if(!outputWsRef.current||outputWsRef.current.readyState!==WebSocket.OPEN) return; const pixels=Array.from({length:19},(_,i)=>({r:(i*13)%256,g:(i*29)%256,b:(i*47)%256})); outputWsRef.current.send(JSON.stringify({type:"led_frame", pixels})); setTimeout(()=>{const p=Array.from({length:19},()=>({r:0,g:0,b:0})); outputWsRef.current.send(JSON.stringify({type:"led_frame", pixels:p})); lastLedFrameRef.current="";}, 600); }} style={{padding:"6px 12px",fontSize:9,fontWeight:"bold",background:"#0c0e12",border:"2px solid #ffcc4444",color:"#ffcc44",borderRadius:6,cursor:"pointer",letterSpacing:1}} title="Flash all LEDs with a test pattern">TEST</button>
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
+              <span style={{fontSize:8,color:"#666",letterSpacing:1,width:64}}>BRIGHTNESS</span>
+              <input type="range" min="0" max="255" value={ledBrightness} onChange={e=>setLedBrightness(parseInt(e.target.value))} style={{flex:1}}/>
+              <span style={{fontSize:9,color:"#99ccff",width:32,textAlign:"right"}}>{ledBrightness}</span>
+            </div>
+            <div style={{fontSize:8,color:"#556",marginTop:2,lineHeight:1.4}}>54 WS2812 pixels over USB, grouped as 19 notes (2-3 LEDs per note; short clusters at ends + center). Flash the ESP32 sketch in /led-bridge first. Note N = fixture N (wraps every 19). Unassigned = dark.</div>
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:8}}>MIDI PROFILE</div>
             <div style={{display:"flex",gap:4,marginBottom:4}}>
               <select value={midiProfileName} onChange={e=>{const name=e.target.value;if(!name)return;setMidiProfileName(name);try{const profiles=JSON.parse(localStorage.getItem("lumina-midi-profiles")||"{}");const p=profiles[name];if(p){setMidiMap(p.map||{});setMidiValueMode(p.valueMode||"velocity");setEncoderMode(p.encoderMode||"pickup");window.__bpmEncoderMode=p.encoderMode||"pickup";setEncoderSensitivity(p.sensitivity||1);bpmSensitivity.current=p.sensitivity||1;setMidiLiveMode(p.liveMode||false);localStorage.setItem("lumina-midi-profile-active",name);}}catch(e){}}} style={{flex:1,padding:"6px 8px",fontSize:10,background:"#080a0e",border:"1px solid #aa44ff44",color:"#cc66ff",borderRadius:8,cursor:"pointer"}}>

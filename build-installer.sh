@@ -92,6 +92,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
   <false/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Lumina FX uses audio input (microphone or line-in) for real-time BPM detection and beat-reactive lighting.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Lumina FX does not use the camera; this entry is required by WebKit for media capture permission prompts.</string>
 </dict>
 </plist>
 PLIST
@@ -135,6 +139,16 @@ cp "$SCRIPT_DIR/viz.html" "$APP_DIR/"
 cp "$SCRIPT_DIR/package.json" "$APP_DIR/"
 cp "$SCRIPT_DIR/package-lock.json" "$APP_DIR/" 2>/dev/null || true
 cp -r "$SCRIPT_DIR/custom-fixtures" "$APP_DIR/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/lib" "$APP_DIR/" 2>/dev/null || true
+
+# Compile Swift helper that switches the macOS default input device by name
+echo "       Compiling CoreAudio input switcher..."
+if [ -f "$SCRIPT_DIR/set-default-input.swift" ]; then
+  swiftc -O "$SCRIPT_DIR/set-default-input.swift" -o "$APP_DIR/set-default-input" 2>&1 | tail -3 || {
+    echo "       WARNING: swiftc failed — helper will be missing, manual fallback still works"
+  }
+  chmod +x "$APP_DIR/set-default-input" 2>/dev/null || true
+fi
 
 # Install production dependencies into the app bundle
 echo "       Installing production dependencies..."

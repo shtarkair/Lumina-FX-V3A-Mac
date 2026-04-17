@@ -115,11 +115,11 @@ function httpsGet(url, useAuth = true) {
     const https = require('https');
     const get = (u) => {
       const headers = { 'User-Agent': 'Lumina-FX' };
-      if (useAuth && GITHUB_TOKEN && u.includes('github')) {
+      if (useAuth && GITHUB_TOKEN && u.includes('api.github.com')) {
         headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
       }
       console.log('[UPDATE] Fetching:', u);
-      const req = https.get(u, { headers, timeout: 15000 }, (res) => {
+      const req = https.get(u, { headers, timeout: 60000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return get(res.headers.location);
         }
@@ -705,9 +705,13 @@ setTimeout(() => {
             }
           }
 
-          // Update version.json
-          fs.writeFileSync(VERSION_FILE, JSON.stringify({ tag, date: new Date().toISOString() }));
-          console.log('[UPDATE] Version updated to', tag);
+          // Only update version.json if at least the core file (lighting-app.html) downloaded
+          if (downloaded > 0) {
+            fs.writeFileSync(VERSION_FILE, JSON.stringify({ tag, date: new Date().toISOString() }));
+            console.log('[UPDATE] Version updated to', tag, '(' + downloaded + ' files)');
+          } else {
+            console.log('[UPDATE] No files downloaded — version NOT bumped');
+          }
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, tag, downloaded, backup: backupDir }));
@@ -719,6 +723,81 @@ setTimeout(() => {
         }
       })();
     }
+    return;
+  }
+
+  // --- Open macOS Sound settings (Input tab) ---
+  if (req.url === '/api/open-sound-prefs' && req.method === 'POST') {
+    try { execSync('open "x-apple.systempreferences:com.apple.Sound-Settings.extension?Input" 2>/dev/null', { timeout: 2000 }); }
+    catch(e) { try { execSync('open /System/Library/PreferencePanes/Sound.prefPane 2>/dev/null', { timeout: 2000 }); } catch(e2) {} }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+    return;
+  }
+
+  // --- Set macOS default audio input device by name (via bundled helper) ---
+  if (req.url === '/api/set-default-input' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { name } = JSON.parse(body || '{}');
+        if (!name) { res.writeHead(400); res.end('{"error":"name required"}'); return; }
+        const helper = path.join(__dirname, 'set-default-input');
+        if (!fs.existsSync(helper)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, reason: 'helper-missing' }));
+          return;
+        }
+        try {
+          execSync(`"${helper}" ${JSON.stringify(name)} 2>&1`, { timeout: 3000 });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch(e) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
+      } catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: String(e.message || e) })); }
+    });
+    return;
+  }
+
+  // --- macOS audio input device enumeration (via bundled CoreAudio helper) ---
+  // The Swift helper emits the same device names CoreAudio uses internally,
+  // so `set-default-input "Name"` will always find a match.
+  if (req.url === '/api/audio-devices' && req.method === 'GET') {
+    const inputs = [];
+    const helper = path.join(__dirname, 'set-default-input');
+    if (fs.existsSync(helper)) {
+      try {
+        const out = execSync(`"${helper}" --list 2>/dev/null`, { timeout: 3000 }).toString().trim();
+        const arr = JSON.parse(out);
+        for (const d of arr) if (d && d.name) inputs.push({ name: d.name, id: d.id });
+      } catch(e) { /* fall through to system_profiler below */ }
+    }
+    // Fallback: system_profiler (only if helper missing or failed)
+    if (inputs.length === 0) {
+      try {
+        const raw = execSync('system_profiler SPAudioDataType -json 2>/dev/null', { timeout: 5000 }).toString();
+        const parsed = JSON.parse(raw);
+        const cards = parsed.SPAudioDataType || [];
+        const seen = new Set();
+        for (const card of cards) {
+          const items = card._items || [];
+          for (const item of items) {
+            if (!item._name || seen.has(item._name.toLowerCase())) continue;
+            const hasInput = item.coreaudio_device_input === 'spaudio_yes' ||
+                             item.coreaudio_input_source ||
+                             /line.?in|microphone|input|built.?in|external/i.test(item._name);
+            if (item.coreaudio_device_output === 'spaudio_yes' && !hasInput) continue;
+            seen.add(item._name.toLowerCase());
+            inputs.push({ name: item._name });
+          }
+        }
+      } catch(e) {}
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ inputs }));
     return;
   }
 
@@ -736,6 +815,20 @@ setTimeout(() => {
       });
       res.end(data);
     });
+    return;
+  }
+  // LED diagnostic — write a test frame directly and report
+  if (req.url === '/led-diag') {
+    const diag = { serialOpen: !!global._ledSerial, port: global._ledPort || null, frameCount: global._ledFrameCount || 0, writeErr: null, bytesWritten: 0 };
+    if (global._ledSerial) {
+      const N = 19; const buf = Buffer.alloc(60);
+      buf[0]=0xFF; buf[1]=0xA1; let chk=0;
+      for(let i=0;i<N;i++){buf[2+i*3]=255;buf[2+i*3+1]=0;buf[2+i*3+2]=0;chk^=255;}
+      buf[59]=chk; diag.bytesWritten=60;
+      global._ledSerial.write(buf,(e)=>{ diag.writeErr=e?e.message:null; });
+    }
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    res.end(JSON.stringify(diag));
     return;
   }
   // Visualizer page
@@ -1692,6 +1785,111 @@ wss.on('connection', (ws) => {
       if (msg.type === 'midi_close') {
         if (global._midi) global._midi.closeMidiPort();
         ws.send(JSON.stringify({ type: 'midi_status', ok: true, connected: false }));
+        return;
+      }
+
+      // --- LED bridge (ESP32 over USB serial via Node.js serialport) ---
+      if (msg.type === 'led_scan') {
+        try {
+          const entries = fs.readdirSync('/dev').filter(n => /^(cu|tty)\.(usbserial|usbmodem|wchusb|SLAB_USB)/i.test(n)).map(n => '/dev/' + n);
+          ws.send(JSON.stringify({ type: 'led_ports', ports: entries, activePort: global._ledPort || null }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: 'led_ports', ports: [], error: String(e) }));
+        }
+        return;
+      }
+      if (msg.type === 'led_open') {
+        // Close any existing port
+        if (global._ledSerial) {
+          try { global._ledSerial.close(); } catch(e){}
+          global._ledSerial = null;
+        }
+        global._ledPort = null;
+        const p = msg.port;
+        const capturedWs = ws;
+        try {
+          let SerialPort;
+          try { SerialPort = require('serialport').SerialPort; } catch(e) {
+            SerialPort = require('serialport');
+            if (SerialPort.SerialPort) SerialPort = SerialPort.SerialPort;
+          }
+          const port = new SerialPort({
+            path: p,
+            baudRate: 115200,
+            dataBits: 8,
+            stopBits: 1,
+            parity: 'none',
+            hupcl: false,
+            autoOpen: false
+          });
+          port.open((err) => {
+            if (err) {
+              console.error('[LED] Port open error:', err.message);
+              global._ledSerial = null; global._ledPort = null;
+              try { capturedWs.send(JSON.stringify({ type: 'led_status', ok: false, connected: false, error: err.message })); } catch(e){}
+              return;
+            }
+            console.log(`[LED] Serial port ${p} opened. Waiting 2s for ESP32 boot...`);
+            global._ledSerial = port;
+            global._ledPort = p;
+            // Release DTR immediately so CH340 doesn't hold ESP32 in reset
+            port.set({ dtr: false, rts: false }, (e) => { if(e) console.error('[LED] DTR release error:', e.message); });
+            setTimeout(() => {
+              port.flush(() => {
+                console.log(`[LED] Flushed. Ready.`);
+                try { capturedWs.send(JSON.stringify({ type: 'led_status', ok: true, connected: true, port: p })); } catch(e){}
+              });
+            }, 2500);
+          });
+          port.on('error', (err) => {
+            console.error('[LED] Serial error:', err.message);
+            global._ledSerial = null; global._ledPort = null;
+            try { capturedWs.send(JSON.stringify({ type: 'led_status', ok: false, connected: false, error: err.message })); } catch(e){}
+          });
+          port.on('close', () => {
+            console.log('[LED] Serial port closed.');
+            global._ledSerial = null; global._ledPort = null;
+            try { capturedWs.send(JSON.stringify({ type: 'led_status', ok: false, connected: false })); } catch(e){}
+          });
+        } catch (e) {
+          console.error('[LED] SerialPort require error:', e.message);
+          global._ledSerial = null; global._ledPort = null;
+          ws.send(JSON.stringify({ type: 'led_status', ok: false, connected: false, error: String(e) }));
+        }
+        return;
+      }
+      if (msg.type === 'led_close') {
+        if (global._ledSerial) {
+          try { global._ledSerial.close(); } catch(e){}
+          global._ledSerial = null;
+        }
+        global._ledPort = null;
+        ws.send(JSON.stringify({ type: 'led_status', ok: true, connected: false }));
+        return;
+      }
+      if (msg.type === 'led_frame') {
+        if (!global._ledSerial || !Array.isArray(msg.pixels)) return;
+        const N = 19;
+        const buf = Buffer.alloc(60);
+        buf[0] = 0xFF; buf[1] = 0xA1;
+        let chk = 0;
+        for (let i = 0; i < N; i++) {
+          const px = msg.pixels[i] || {r:0,g:0,b:0};
+          const r = Math.max(0, Math.min(255, px.r|0));
+          const g = Math.max(0, Math.min(255, px.g|0));
+          const b = Math.max(0, Math.min(255, px.b|0));
+          buf[2 + i*3]     = r;
+          buf[2 + i*3 + 1] = g;
+          buf[2 + i*3 + 2] = b;
+          chk ^= r; chk ^= g; chk ^= b;
+        }
+        buf[59] = chk;
+        if (!global._ledFrameCount) global._ledFrameCount = 0;
+        global._ledFrameCount++;
+        if (global._ledFrameCount % 30 === 1) console.log(`[LED] frame #${global._ledFrameCount} px0=${buf[2]},${buf[3]},${buf[4]}`);
+        global._ledSerial.write(buf, (err) => {
+          if (err) { console.error('[LED] Write error:', err.message); }
+        });
         return;
       }
 
