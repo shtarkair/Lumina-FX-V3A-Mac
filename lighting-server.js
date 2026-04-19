@@ -1893,6 +1893,30 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      if (msg.type === 'led_level') {
+        if (!global._ledSerial || !Array.isArray(msg.pixels)) return;
+        // Same 60-byte structure as led_frame but header 0xFF 0xA2 → level strip
+        const N = 19;
+        const buf = Buffer.alloc(60);
+        buf[0] = 0xFF; buf[1] = 0xA2;
+        let chk = 0;
+        for (let i = 0; i < N; i++) {
+          const px = msg.pixels[i] || {r:0,g:0,b:0};
+          const r = Math.max(0, Math.min(255, px.r|0));
+          const g = Math.max(0, Math.min(255, px.g|0));
+          const b = Math.max(0, Math.min(255, px.b|0));
+          buf[2 + i*3]     = r;
+          buf[2 + i*3 + 1] = g;
+          buf[2 + i*3 + 2] = b;
+          chk ^= r; chk ^= g; chk ^= b;
+        }
+        buf[59] = chk;
+        global._ledSerial.write(buf, (err) => {
+          if (err) console.error('[LED] Level write error:', err.message);
+        });
+        return;
+      }
+
       // --- Output control ---
       if (msg.type === 'viz_state') {
         lastVizState = msg;
