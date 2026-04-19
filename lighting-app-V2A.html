@@ -2108,9 +2108,8 @@ const defaultCues = [
   {id:genId(),fixtureId:6,param:"yellow",beat:4,duration:8,value:100,easing:"bounce",fadeIn:0.4,fadeOut:0,startValue:0,endValue:0},
 ];
 
-const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues, padMap, setPadMap, padMapMode, setPadMapMode }) {
+const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues, padMap, setPadMap, padMapMode, setPadMapMode, padPage, setPadPage }) {
   const PADS_PER_PAGE = 19;
-  const [padPage, setPadPage] = useState(0);
   const [activeParam, setActiveParam] = useState("dimmer");
   const [mode, setMode] = useState(null);
   const [heldPads, setHeldPads] = useState(new Set());
@@ -3272,6 +3271,7 @@ function LightingTimeline() {
   // Pad map: array of fixture IDs (or null) — one entry per pad slot. Used when padMapMode === "custom".
   const [padMap, setPadMap] = useState(()=>{ try { return JSON.parse(localStorage.getItem("lumina-padmap")) || []; } catch(e) { return []; } });
   const [padMapMode, setPadMapMode] = useState(()=> localStorage.getItem("lumina-padmap-mode") || "auto");
+  const [padPage, setPadPage] = useState(0);
   useEffect(()=>{ try { localStorage.setItem("lumina-padmap", JSON.stringify(padMap)); } catch(e){} }, [padMap]);
   useEffect(()=>{ try { localStorage.setItem("lumina-padmap-mode", padMapMode); } catch(e){} }, [padMapMode]);
   // Pad-slot picker popup state for Fixture Manager assignments
@@ -4613,51 +4613,59 @@ function LightingTimeline() {
   };
   useEffect(() => {
     if (!ledEnabled || !ledConnected) return;
-    lastLedFrameRef.current = ""; // Always resend on reconnect — ESP32 may have reset
+    const N = 19;
     const computeAndSend = () => {
       if (!outputWsRef.current || outputWsRef.current.readyState !== WebSocket.OPEN) return;
-      const N = 19;
       const pixels = Array.from({length:N}, ()=>({r:0,g:0,b:0}));
-      // Build a fast lookup: is this fixture MIDI-assigned (directly or via a group membership)?
-      const mapVals = Object.values(midiMap || {});
-      const directSet = new Set();
-      const groupKeys = [];
-      mapVals.forEach(v => {
-        if (typeof v === "number" || (typeof v === "string" && !v.includes(":"))) directSet.add(v);
-        else if (typeof v === "string" && v.startsWith("grp:")) groupKeys.push(v);
-      });
-      const fixtureMidiAssigned = (fx) => {
-        if (directSet.has(fx.id)) return true;
-        for (const gk of groupKeys) {
-          const parts = gk.split(":");
-          if (parts.length < 3) continue;
-          const kind = parts[1], val = parts.slice(2).join(":");
-          if (kind === "type" && fx.type === val) return true;
-          if (kind === "position" && (fx.position||"FRONT 1") === val) return true;
-          if (kind === "color" && (fx.colorGroup||fx.color) === val) return true;
-        }
-        return false;
-      };
       const bScale = Math.max(0, Math.min(255, ledBrightness|0)) / 255;
-      fixtures.forEach((fx, idx) => {
-        if (!fixtureMidiAssigned(fx)) return;
-        const ledIdx = idx % N;
-        const rgb = hexToRgb(fx.color || "#ffffff");
-        // Additive blend if multiple fixtures wrap onto the same LED
-        let r = pixels[ledIdx].r + rgb.r * bScale;
-        let g = pixels[ledIdx].g + rgb.g * bScale;
-        let b = pixels[ledIdx].b + rgb.b * bScale;
-        pixels[ledIdx] = { r: Math.min(255, r|0), g: Math.min(255, g|0), b: Math.min(255, b|0) };
-      });
-      // Send every frame — no dedup (needed to beat the ESP32 5s watchdog)
+      const fxById = new Map(fixtures.map(f=>[f.id, f]));
+
+      // Helper: resolve group key → display color
+      const groupColor = (grpKey) => {
+        const parts = grpKey.split(":");
+        if (parts.length < 3) return null;
+        const kind = parts[1], val = parts.slice(2).join(":");
+        if (kind === "type")     return TYPE_COLORS[val] || null;
+        if (kind === "position") return POSITION_COLORS[val] || null;
+        if (kind === "color")    return val; // hex string
+        return null;
+      };
+
+      if (padMapMode === "custom" && padMap && padMap.length) {
+        // Custom map: each pad slot holds a fixture ID or a group key
+        for (let i = 0; i < N; i++) {
+          const slotGlobal = padPage * N + i;
+          const entry = padMap[slotGlobal];
+          if (entry == null) continue;
+          let color = null;
+          if (typeof entry === "string" && entry.startsWith("grp:")) {
+            color = groupColor(entry);
+          } else {
+            const fx = fxById.get(entry);
+            if (fx) color = fx.color;
+          }
+          if (!color) continue;
+          const rgb = hexToRgb(color);
+          pixels[i] = { r: Math.min(255,(rgb.r*bScale)|0), g: Math.min(255,(rgb.g*bScale)|0), b: Math.min(255,(rgb.b*bScale)|0) };
+        }
+      } else {
+        // Auto mode: current page's slice of fixtures in patch order
+        for (let i = 0; i < N; i++) {
+          const fx = fixtures[padPage * N + i];
+          if (!fx) continue;
+          const rgb = hexToRgb(fx.color || "#ffffff");
+          pixels[i] = { r: Math.min(255,(rgb.r*bScale)|0), g: Math.min(255,(rgb.g*bScale)|0), b: Math.min(255,(rgb.b*bScale)|0) };
+        }
+      }
+
       outputWsRef.current.send(JSON.stringify({ type:"led_frame", pixels }));
     };
-    // Debounce via interval (30 Hz cap)
+    // 30 Hz interval — keeps ESP32 watchdog alive
     if (ledFrameTimerRef.current) clearInterval(ledFrameTimerRef.current);
     ledFrameTimerRef.current = setInterval(computeAndSend, 33);
     computeAndSend();
     return () => { if (ledFrameTimerRef.current) { clearInterval(ledFrameTimerRef.current); ledFrameTimerRef.current = null; } };
-  }, [ledEnabled, ledConnected, fixtures, midiMap, ledBrightness]);
+  }, [ledEnabled, ledConnected, fixtures, midiMap, ledBrightness, padPage, padMap, padMapMode]);
 
   // On LED disable or disconnect, clear the strip by sending one black frame
   useEffect(() => {
@@ -5846,7 +5854,7 @@ function LightingTimeline() {
             {boxSelect&&(()=>{const x1=Math.min(boxSelect.startX,boxSelect.curX),x2=Math.max(boxSelect.startX,boxSelect.curX),y1=Math.min(boxSelect.startY,boxSelect.curY),y2=Math.max(boxSelect.startY,boxSelect.curY);return <div style={{position:"absolute",left:LABEL_W+PARAM_LABEL_W+x1,top:RULER_H+(waveformPeaks?40:0)+y1,width:x2-x1,height:y2-y1,border:"1.5px dashed #e8aa22",background:"rgba(232,170,34,0.18)",borderRadius:3,pointerEvents:"none",zIndex:40,boxShadow:"0 0 0 1px rgba(0,0,0,0.55), 0 0 16px rgba(232,170,34,0.35)"}}/>;})()}
           </div>
         </div>
-        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions} padMap={padMap} setPadMap={setPadMap} padMapMode={padMapMode} setPadMapMode={setPadMapMode}/>}
+        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions} padMap={padMap} setPadMap={setPadMap} padMapMode={padMapMode} setPadMapMode={setPadMapMode} padPage={padPage} setPadPage={setPadPage}/>}
         </div>
 
         <div style={{width:(rightPanelWide||alwaysWideTabs)?440:220,background:"#141820",display:playMode?"none":"flex",flexDirection:"column",flexShrink:0,overflow:"hidden",transition:"width 0.2s ease",margin:"6px 6px 6px 0",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
