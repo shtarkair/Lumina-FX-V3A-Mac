@@ -3253,19 +3253,23 @@ function LightingTimeline() {
     serverMidiRef.current = true;
   }, [midiConnected]);
   const [fixtures, setFixtures] = useState(() => {
-    const OLD_COLORS = new Set(["#ff5544","#44aaff","#ffdd44","#aa44ff","#44ffaa","#8844ff","#ff8844","#cccccc","#ff2200","#0055ff","#00cc00","#ff00cc","#00ccff"]);
+    // Palette version — increment this whenever TYPE_COLORS changes.
+    // On mismatch, all fixtures get their color re-derived from TYPE_COLORS by type.
+    const PALETTE_VERSION = "3";
     try {
       const saved = JSON.parse(localStorage.getItem("lumina-fixtures"));
       if (saved) {
-        // Migrate: re-apply TYPE_COLORS for any fixture still using an old palette color
-        return saved.map(f => {
-          if (OLD_COLORS.has((f.color||'').toLowerCase()) && TYPE_COLORS[f.type]) {
-            return { ...f, color: TYPE_COLORS[f.type] };
-          }
-          return f;
-        });
+        const storedVersion = localStorage.getItem("lumina-palette-version");
+        if (storedVersion !== PALETTE_VERSION) {
+          // Re-derive colors from TYPE_COLORS for all fixtures with a known type
+          const migrated = saved.map(f => TYPE_COLORS[f.type] ? { ...f, color: TYPE_COLORS[f.type] } : f);
+          localStorage.setItem("lumina-palette-version", PALETTE_VERSION);
+          return migrated;
+        }
+        return saved;
       }
     } catch(e) {}
+    localStorage.setItem("lumina-palette-version", PALETTE_VERSION);
     return defaultFixtures();
   });
   // Pad map: array of fixture IDs (or null) — one entry per pad slot. Used when padMapMode === "custom".
