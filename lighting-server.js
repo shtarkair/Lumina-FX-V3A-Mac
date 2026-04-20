@@ -11,6 +11,7 @@ const { spawn, execSync } = require('child_process');
 const PORT = 3457;
 const ARTNET_PORT = 6454;
 const SACN_PORT = 5568;
+const SERVER_START_TIME = Date.now();
 const MAX_UNIVERSES = 64;
 const filePath = path.join(__dirname, 'lighting-app.html');
 
@@ -852,7 +853,13 @@ setTimeout(() => {
     });
     return;
   }
-  // Default: serve the app
+  // Default: serve the app — redirect bare / to /?t=<serverStartTime> to bust WKWebView cache on every restart
+  const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
+  if (parsedUrl.pathname === '/' && !parsedUrl.searchParams.get('t')) {
+    res.writeHead(302, { 'Location': `/?t=${SERVER_START_TIME}`, 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(500);
@@ -1981,6 +1988,22 @@ wss.on('connection', (ws) => {
     }
   });
 });
+
+// --- MIDI hotplug detection: poll every 1.5s, notify clients on port changes ---
+{
+  let _lastMidiSig = '';
+  setInterval(() => {
+    if (!global._midi) return;
+    const ports = global._midi.scanMidiPorts();
+    const sig = ports.map(p => p.name).join('|');
+    if (sig === _lastMidiSig) return;
+    const added = ports.filter(p => !_lastMidiSig.includes(p.name));
+    _lastMidiSig = sig;
+    console.log('[MIDI] Device change detected:', ports.map(p => p.name).join(', ') || 'none');
+    const payload = JSON.stringify({ type: 'midi_ports', ports, activePort: midiInputPort, hotplug: true, added: added.map(p => p.name) });
+    wss.clients.forEach(ws => { if (ws.readyState === WebSocket.OPEN) ws.send(payload); });
+  }, 1500);
+}
 
 // --- Viz push loop: broadcast lastVizState only when viz clients are connected ---
 setInterval(() => {

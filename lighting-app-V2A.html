@@ -416,6 +416,7 @@ const MIDI_DEVICE_PROFILES = {
   "novation-sl":       { match:["sl mkiii","sl mk3","novation sl"], type:"keyboard", brand:"Novation", model:"SL MkIII",   keys:{noteStart:36,noteEnd:96}, faders:{ccStart:41,ccEnd:48,count:8}, transport:{play:117,stop:116,rec:118} },
   "korg-keystage":     { match:["keystage"],                   type:"keyboard", brand:"Korg",     model:"Keystage",        keys:{noteStart:36,noteEnd:96}, faders:null, transport:null },
   "roland-a-series":   { match:["a-49","a-88","a-25","roland a-"], type:"keyboard", brand:"Roland", model:"A-Series",      keys:{noteStart:21,noteEnd:108}, faders:null, transport:null },
+  "smk-37":            { match:["smk-37","smk37","smk 37"],                  type:"keyboard", brand:"SMK",      model:"SMK-37 Pro", keys:{noteStart:48,noteEnd:84}, faders:null, transport:null },
   "generic-keyboard":  { match:["keyboard","piano","keys","midi keyboard"], type:"keyboard", brand:"Generic", model:"Keyboard", keys:{noteStart:36,noteEnd:96}, faders:null, transport:null },
 
   // --- FADER/KNOB CONTROLLERS ---
@@ -1144,7 +1145,7 @@ function generateEffect({ effectType, fixtures, paramId, speed, offset, crossfad
   return cues;
 }
 
-const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, setCues, loopStart, loopEnd, fxStart, fxEnd, setFxEnd, setExpandedFixtures, setExpandedGroups, onSelectionChange, onPreviewChange, autoDissolve }) {
+const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, setCues, loopStart, loopEnd, fxStart, fxEnd, setFxEnd, setExpandedFixtures, setExpandedGroups, onSelectionChange, onPreviewChange, autoDissolve, midiDetectedDevice }) {
   const [selFixtures, setSelFixtures] = useState(() => { try { const s=localStorage.getItem("lumina-fx-selfixtures"); if(s){ const ids=JSON.parse(s); const valid=ids.filter(id=>fixtures.some(f=>f.id===id)); if(valid.length>0) return new Set(valid); } } catch(e){} return new Set(fixtures.slice(0,4).map(f=>f.id)); });
   useEffect(()=>{ if(onSelectionChange) onSelectionChange(selFixtures); try{localStorage.setItem("lumina-fx-selfixtures",JSON.stringify([...selFixtures]));}catch(e){} window.__fxSelFixtures=setSelFixtures; }, [selFixtures]);
   const [paramId, setParamId] = useState("dimmer");
@@ -1398,7 +1399,7 @@ const EffectGenerator = React.memo(function EffectGenerator({ fixtures, cues, se
                 </div>
               </div>
               {showIndividual?<>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,marginBottom:4}}>
+              <div style={{display:"grid",gridTemplateColumns:`repeat(${midiDetectedDevice?.type==="keyboard"?8:4},1fr)`,gap:4,marginBottom:4}}>
                 {fixtures.map(fx=>{const sel=selFixtures.has(fx.id);const nm=fx.name;const lines=nm.length>6?[nm.slice(0,6),nm.slice(6,12)]:[nm];return <button key={fx.id} onClick={()=>toggleFx(fx.id)} style={{...btnS2(sel,fx.color),flexDirection:"column",gap:1,padding:"4px 2px"}}><div style={{width:8,height:8,borderRadius:"50%",background:fx.color,opacity:sel?1:0.3}}/>{lines.map((l,i)=><span key={i} style={{fontSize:8,lineHeight:"10px"}}>{l}</span>)}</button>;})}
               </div>
               <div style={sepStyle2}/>
@@ -2111,8 +2112,18 @@ const defaultCues = [
   {id:genId(),fixtureId:6,param:"yellow",beat:4,duration:8,value:100,easing:"bounce",fadeIn:0.4,fadeOut:0,startValue:0,endValue:0},
 ];
 
-const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues, padMap, setPadMap, padMapMode, setPadMapMode, padPage, setPadPage, ledSelFxRef }) {
-  const PADS_PER_PAGE = 19;
+const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCues, playhead, playheadRef, beatEventRef, audioMode, onParamSelect, midiConnected, setMidiConnected, midiLearn, setMidiLearn, midiMap, setMidiMap, toggleMidi, midiAccessRef, midiActions, midiValueMode, midiModValue, midiLiveMode, midiSettingsOpen, setMidiSettingsOpen, midiAutoConnect, mutedLanes, soloLanes, paramFloors, paramOverrides, liveValues, padMap, setPadMap, padMapMode, setPadMapMode, padPage, setPadPage, ledSelFxRef, midiDetectedDevice }) {
+  const PADS_PER_PAGE = useMemo(() => {
+    if (midiDetectedDevice?.keys) {
+      const WHITE = [0,2,4,5,7,9,11];
+      let count = 0;
+      for (let n = midiDetectedDevice.keys.noteStart; n <= midiDetectedDevice.keys.noteEnd; n++) {
+        if (WHITE.includes(n % 12)) count++;
+      }
+      return Math.max(8, count);
+    }
+    return 19;
+  }, [midiDetectedDevice]);
   const [activeParam, setActiveParam] = useState("dimmer");
   const [mode, setMode] = useState(null);
   const [heldPads, setHeldPads] = useState(new Set());
@@ -2172,7 +2183,7 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
   useEffect(() => { midiLearnRef.current = midiLearn; }, [midiLearn]);
 
   const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-  const noteName = n => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+  const noteName = n => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 4);
   const reverseMidiMap = useMemo(() => { const r={}; Object.entries(midiMap).forEach(([key,fxId])=>{ r[fxId]=key; }); return r; }, [midiMap]);
   const mmcLabel = c => ({1:"STOP",2:"PLAY",3:"DPLY",4:"FF",5:"REW",6:"REC",7:"RECX",9:"RECP"}[c]||("MMC"+c));
   const midiKeyLabel = k => { if(!k) return null; if(typeof k==="string"&&k.startsWith("cc:")) return "CC"+k.slice(3); if(typeof k==="string"&&k.startsWith("mmc:")) return mmcLabel(parseInt(k.slice(4))); const n=parseInt(k); return isNaN(n)?k:noteName(n); };
@@ -2476,7 +2487,23 @@ const FixturePadBar = React.memo(function FixturePadBar({ fixtures, cues, setCue
   const GAP = 4;
   const WW = padContainerW > 0 ? Math.floor((padContainerW - (PADS_PER_PAGE - 1) * GAP) / PADS_PER_PAGE) : 37;
   const WH = 80;
-  const blackAfter = new Set([0,1,2,4,5]);
+  // Compute which white-key positions (0-6) have a black key after them, based on the device's first note
+  const blackAfter = useMemo(() => {
+    const WHITE = [0,2,4,5,7,9,11];
+    const startNote = midiDetectedDevice?.keys?.noteStart ?? 36; // default C
+    let firstWhite = startNote;
+    while (!WHITE.includes(firstWhite % 12)) firstWhite++;
+    const s = new Set();
+    let wc = 0, n = firstWhite;
+    while (wc < 7) {
+      if (WHITE.includes(n % 12)) {
+        if (!WHITE.includes((n + 1) % 12)) s.add(wc);
+        wc++;
+      }
+      n++;
+    }
+    return s;
+  }, [midiDetectedDevice]);
   // Resolve which "list" the pad bar is paging over — auto = fixtures array, custom = padMap (lookup id → fixture)
   const isCustomMap = padMapMode === "custom";
   const fxById = useMemo(()=>{ const m=new Map(); fixtures.forEach(f=>m.set(f.id,f)); return m; }, [fixtures]);
@@ -3064,6 +3091,15 @@ const ParamRowMemo = React.memo(function ParamRowMemo({param,laneKey,fixtureId,p
           const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
           return <div key={"fghost-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#cc44ff06",border:"1px dashed #cc44ff30",borderRadius:3,pointerEvents:"none",zIndex:2}}><CurvePath cue={gc} w={gcW} h={gcH} color="#cc44ff" isActive={true}/></div>;
         })}
+        {loopEnabled&&(()=>{
+          const loopDuration=loopEnd-loopStart;
+          if(loopDuration<=0) return null;
+          return laneCues.filter(c=>!c.muted&&c.beat>=loopStart&&c.beat<loopEnd&&c.beat+c.duration>loopEnd).map((c,gi)=>{
+            const gc={...c,beat:c.beat-loopDuration};
+            const gcW=Math.max(4,beatToX(gc.duration)-2);const gcH=h-4;
+            return <div key={"lwrap-"+gi} style={{position:"absolute",left:beatToX(gc.beat)+1,width:gcW,top:2,height:gcH,background:"#ffaa4408",border:"1px dashed #ffaa4455",borderRadius:3,pointerEvents:"none",zIndex:2,overflow:"hidden"}}><CurvePath cue={gc} w={gcW} h={gcH} color="#ffaa44" isActive={true}/><div style={{position:"absolute",bottom:1,right:3,fontSize:6,color:"#ffaa44aa",pointerEvents:"none"}}>↩</div></div>;
+          });
+        })()}
       </div>
     </div>
   );
@@ -3288,7 +3324,8 @@ function LightingTimeline() {
     if(midiAutoMapFixtureCount.current === null) { midiAutoMapFixtureCount.current = fixtures.length; return; }
     if(!midiAutoMap || fixtures.length === midiAutoMapFixtureCount.current) { midiAutoMapFixtureCount.current = fixtures.length; return; }
     midiAutoMapFixtureCount.current = fixtures.length;
-    const whiteKeys=[];for(let n=36;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}
+    const _ns=midiDetectedDevice?.keys?.noteStart??36;const _ne=midiDetectedDevice?.keys?.noteEnd??96;
+    const whiteKeys=[];for(let n=_ns;n<=_ne;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}
     setMidiMap(prev=>{const newMap={...prev};
       Object.keys(newMap).forEach(k=>{const v=newMap[k];if(typeof v==="number")delete newMap[k];});
       fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});
@@ -4408,6 +4445,35 @@ function LightingTimeline() {
         else if(displayPlayhead<c.beat) hi=mid-1;
         else { if(!c.muted) map[laneKey]=interpolateCue(c,displayPlayhead); break; }
       }
+      // Loop wrap-around: ghost values for cues that extend past loopEnd.
+      // Only active when loop is on. Evaluate the lane at wrappedP = displayPlayhead + loopDuration.
+      // If a cue is alive there AND it started inside the loop but extends past loopEnd → carry it over.
+      if (loopEnabled) {
+        const loopDuration = loopEnd - loopStart;
+        if (loopDuration > 0 && displayPlayhead >= loopStart && displayPlayhead < loopEnd) {
+          const wrappedP = displayPlayhead + loopDuration;
+          let wlo = 0, whi = laneCues.length - 1;
+          while (wlo <= whi) {
+            const wmid = (wlo + whi) >> 1;
+            const wc = laneCues[wmid];
+            if (wrappedP >= wc.beat + wc.duration) wlo = wmid + 1;
+            else if (wrappedP < wc.beat) whi = wmid - 1;
+            else {
+              // Cue is active at wrappedP — only use it if it wraps past loopEnd
+              if (!wc.muted && wc.beat < loopEnd && wc.beat + wc.duration > loopEnd) {
+                const wrapVal = interpolateCue(wc, wrappedP);
+                if (map[laneKey] !== undefined) {
+                  map[laneKey] = Math.max(map[laneKey], wrapVal); // blend: HTP
+                } else {
+                  map[laneKey] = wrapVal;
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+
       // Delay echoes: check all cues with delay for echo contributions
       for(let i=0; i<laneCues.length; i++){
         const c=laneCues[i];
@@ -4455,7 +4521,7 @@ function LightingTimeline() {
       }
     }
     return map;
-  },[cueIndex,displayPlayhead,mutedLanes,soloLanes,paramFloors,paramOverrides]);
+  },[cueIndex,displayPlayhead,mutedLanes,soloLanes,paramFloors,paramOverrides,loopEnabled,loopStart,loopEnd]);
 
   // Precompute which fixtures have active values (O(1) lookup instead of O(n) scan per fixture row)
   // PERF FIX 6: Stable activeFixtures identity — only create new Set when contents actually change
@@ -4504,13 +4570,22 @@ function LightingTimeline() {
             const msg = JSON.parse(event.data);
             // Server-side MIDI messages
             if (msg.type === 'midi_ports' && msg.ports) {
-              if (msg.ports.length > 0 && msg.activePort < 0) {
-                setMidiStatus('Found ' + msg.ports.length + ' device(s), connecting...');
-                ws.send(JSON.stringify({type:'midi_open', port: 0}));
-              } else if (msg.ports.length === 0) {
-                setMidiStatus('No MIDI devices found');
-                serverMidiRef.current = false;
-                setTimeout(() => setMidiStatus(''), 3000);
+              if (msg.hotplug && msg.added && msg.added.length > 0) {
+                // New device plugged in — auto-connect to the first new port
+                const newPortIdx = msg.ports.findIndex(p => msg.added.includes(p.name));
+                if (newPortIdx >= 0) {
+                  setMidiStatus('New device: ' + msg.added[0]);
+                  ws.send(JSON.stringify({type:'midi_open', port: newPortIdx}));
+                }
+              } else if (!msg.hotplug) {
+                if (msg.ports.length > 0 && msg.activePort < 0) {
+                  setMidiStatus('Found ' + msg.ports.length + ' device(s), connecting...');
+                  ws.send(JSON.stringify({type:'midi_open', port: 0}));
+                } else if (msg.ports.length === 0) {
+                  setMidiStatus('No MIDI devices found');
+                  serverMidiRef.current = false;
+                  setTimeout(() => setMidiStatus(''), 3000);
+                }
               }
             }
             if (msg.type === 'led_ports') {
@@ -4805,14 +4880,23 @@ function LightingTimeline() {
     const iv = setInterval(() => {
       const ws = outputWsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // Stop/pause: output only floor and park values; all other channels go to 0
+      const outputValues = playingRef.current ? liveValuesRef.current : (() => {
+        const stopped = {};
+        const floors = paramFloorsRef.current;
+        const parks = paramOverridesRef.current;
+        if (floors) { for (const [k, v] of Object.entries(floors)) { if (v > 0) stopped[k] = v; } }
+        if (parks)  { for (const [k, v] of Object.entries(parks))  { if (v > 0) stopped[k] = Math.max(stopped[k] ?? 0, v); } }
+        return stopped;
+      })();
       if (useInput) {
         // Input mode: send sparse overrides (only active cue channels)
-        const overrides = buildDMXOverrides(liveValuesRef.current, dmxPatchRef.current);
+        const overrides = buildDMXOverrides(outputValues, dmxPatchRef.current);
         if (masterLevelRef.current < 100) { Object.keys(overrides).forEach(k => { overrides[k] = Math.round(overrides[k] * masterLevelRef.current / 100); }); }
         ws.send(JSON.stringify({ type:"dmx_frame", overrides }));
       } else {
         // Legacy mode: send full universe frames
-        const universes = buildDMXFrames(liveValuesRef.current, dmxPatchRef.current);
+        const universes = buildDMXFrames(outputValues, dmxPatchRef.current);
         if (masterLevelRef.current < 100) { Object.values(universes).forEach(u => { for (let i = 0; i < u.length; i++) u[i] = Math.round(u[i] * masterLevelRef.current / 100); }); }
         if (Object.keys(universes).length === 0) return;
         ws.send(JSON.stringify({ type:"dmx_frame", universes }));
@@ -5303,7 +5387,7 @@ function LightingTimeline() {
 
   const reverseActionMap=useMemo(()=>{const r={};Object.entries(midiMap).forEach(([key,val])=>{if(typeof val==="string"&&val.startsWith("act:"))r[val]=key;});return r;},[midiMap]);
   const NOTE_NAMES_APP=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-  const noteNameApp=n=>NOTE_NAMES_APP[n%12]+(Math.floor(n/12)-1);
+  const noteNameApp=n=>NOTE_NAMES_APP[n%12]+(Math.floor(n/12)-4);
   const mmcLabelApp=c=>({1:"STOP",2:"PLAY",3:"DPLY",4:"FF",5:"REW",6:"REC",7:"RECX",9:"RECP"}[c]||("MMC"+c));
   const midiKeyLabelApp=k=>{if(!k)return null;if(typeof k==="string"&&k.startsWith("cc:"))return "CC"+k.slice(3);if(typeof k==="string"&&k.startsWith("mmc:"))return mmcLabelApp(parseInt(k.slice(4)));const n=parseInt(k);return isNaN(n)?k:noteNameApp(n);};
   const midiBtn=(actId,origClick)=>()=>{if(midiLearn==="waiting"||midiLearn!==null){if(reverseActionMap[actId]!==undefined){setMidiMap(prev=>{const next={...prev};Object.keys(next).forEach(k=>{if(next[k]===actId)delete next[k];});return next;});}setMidiLearn(actId);if(window.__midiLearnState)window.__midiLearnState.learn=actId;return;}origClick();};
@@ -5313,7 +5397,7 @@ function LightingTimeline() {
     <div style={{width:displayScale!==1?`${100/displayScale}%`:"100%",height:displayScale!==1?`${100/displayScale}vh`:"100vh",background:"#141820",display:"flex",flexDirection:"column",fontFamily:"'Courier New',monospace",color:"#c0c6d0",overflow:"hidden",userSelect:"none",transform:displayScale!==1?`scale(${displayScale})`:"none",transformOrigin:"0 0",filter:dayMode?"invert(1) hue-rotate(180deg)":"none"}}>
 
       {loopFlash&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(232,170,34,0.08)",pointerEvents:"none",zIndex:999,animation:"loopflash 0.25s ease-out forwards"}}/>}
-      {(selectedCues.size>0&&popupPos||midiLearn==="waiting"||(typeof midiLearn==="string"&&midiLearn.startsWith("pad-")))&&(()=>{const PW=380,PH=400,PAD=8;const defX=PAD,defY=80;const startPos=cuePopupDragPos||{x:defX,y:defY};return <div onMouseDown={e=>{if(e.target.closest("button"))return;e.stopPropagation();const sx=e.clientX-startPos.x,sy=e.clientY-startPos.y;const onMove=ev=>{setCuePopupDragPos({x:Math.max(0,Math.min(ev.clientX-sx,window.innerWidth-PW)),y:Math.max(0,Math.min(ev.clientY-sy,window.innerHeight-PH))});};const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);}} onTouchStart={e=>{if(e.target.closest("button"))return;e.stopPropagation();const t=e.touches[0];const sx=t.clientX-startPos.x,sy=t.clientY-startPos.y;const onMove=ev=>{const tt=ev.touches[0];setCuePopupDragPos({x:Math.max(0,Math.min(tt.clientX-sx,window.innerWidth-PW)),y:Math.max(0,Math.min(tt.clientY-sy,window.innerHeight-PH))});};const onEnd=()=>{window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onEnd);};window.addEventListener("touchmove",onMove);window.addEventListener("touchend",onEnd);}} style={{position:"fixed",left:startPos.x,top:startPos.y,zIndex:9999,pointerEvents:"auto",touchAction:"none",cursor:"grab"}}>
+      {(selectedCues.size>0&&popupPos||midiLearn==="waiting"||(typeof midiLearn==="string"&&midiLearn.startsWith("pad-")))&&(()=>{const _popupCols=midiDetectedDevice?.type==="keyboard"?8:(midiDetectedDevice?.pads?.cols||4);const PW=Math.min(_popupCols*95+20,window.innerWidth-16),PH=400,PAD=8;const defX=PAD,defY=80;const startPos=cuePopupDragPos||{x:defX,y:defY};return <div onMouseDown={e=>{if(e.target.closest("button"))return;e.stopPropagation();const sx=e.clientX-startPos.x,sy=e.clientY-startPos.y;const onMove=ev=>{setCuePopupDragPos({x:Math.max(0,Math.min(ev.clientX-sx,window.innerWidth-PW)),y:Math.max(0,Math.min(ev.clientY-sy,window.innerHeight-PH))});};const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);}} onTouchStart={e=>{if(e.target.closest("button"))return;e.stopPropagation();const t=e.touches[0];const sx=t.clientX-startPos.x,sy=t.clientY-startPos.y;const onMove=ev=>{const tt=ev.touches[0];setCuePopupDragPos({x:Math.max(0,Math.min(tt.clientX-sx,window.innerWidth-PW)),y:Math.max(0,Math.min(tt.clientY-sy,window.innerHeight-PH))});};const onEnd=()=>{window.removeEventListener("touchmove",onMove);window.removeEventListener("touchend",onEnd);};window.addEventListener("touchmove",onMove);window.addEventListener("touchend",onEnd);}} style={{position:"fixed",left:startPos.x,top:startPos.y,zIndex:9999,pointerEvents:"auto",touchAction:"none",cursor:"grab"}}>
         <div style={{background:"#0a0c10f0",border:"1px solid #e8aa2244",borderRadius:10,padding:"10px",display:"flex",flexDirection:"column",gap:6,boxShadow:"0 6px 30px rgba(0,0,0,0.7)",width:PW}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:11,color:"#e8aa22",fontWeight:"bold",letterSpacing:1}}>{selectedCues.size} SELECTED</span>
@@ -5323,7 +5407,7 @@ function LightingTimeline() {
               <button onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={()=>{setPopupPos(null);setAddSelectMode(false);setAddOnceMode(false);}} style={{background:"#1c1016",border:"1px solid #ff444444",color:"#ff6666",cursor:"pointer",fontSize:12,padding:"2px 8px",borderRadius:8,fontWeight:"bold",minWidth:28,minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
             </div>
           </div>
-          {!timeSliderOpen&&!fanSliderOpen&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}}>
+          {!timeSliderOpen&&!fanSliderOpen&&<div style={{display:"grid",gridTemplateColumns:`repeat(${_popupCols},1fr)`,gap:4}}>
             {[
               /* Row 1: SEL FIX white, TIME green, SPLIT orange, DELETE red */
               {label:"\u25A8",sub:"SEL FIX",mid:"pad-selfix",color:"#ffffff",action:()=>{if(selectedCues.size===0){if(window.__selAllTime&&Date.now()-window.__selAllTime<300){window.__selAllTime=null;setSelectedCues(new Set(cues.map(c=>c.id)));flashScreen("#44ff44");return;}window.__selFixTime=Date.now();return;}const sel=cues.filter(c=>selectedCues.has(c.id));const params=new Set(sel.map(c=>c.param));const fxIds=new Set(sel.map(c=>c.fixtureId));const newSel=new Set();cues.forEach(c=>{if(fxIds.has(c.fixtureId)&&params.has(c.param))newSel.add(c.id);});setSelectedCues(newSel);},need:0},
@@ -5884,7 +5968,7 @@ function LightingTimeline() {
             {boxSelect&&(()=>{const x1=Math.min(boxSelect.startX,boxSelect.curX),x2=Math.max(boxSelect.startX,boxSelect.curX),y1=Math.min(boxSelect.startY,boxSelect.curY),y2=Math.max(boxSelect.startY,boxSelect.curY);return <div style={{position:"absolute",left:LABEL_W+PARAM_LABEL_W+x1,top:RULER_H+(waveformPeaks?40:0)+y1,width:x2-x1,height:y2-y1,border:"1.5px dashed #e8aa22",background:"rgba(232,170,34,0.18)",borderRadius:3,pointerEvents:"none",zIndex:40,boxShadow:"0 0 0 1px rgba(0,0,0,0.55), 0 0 16px rgba(232,170,34,0.35)"}}/>;})()}
           </div>
         </div>
-        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions} padMap={padMap} setPadMap={setPadMap} padMapMode={padMapMode} setPadMapMode={setPadMapMode} padPage={padPage} setPadPage={setPadPage} ledSelFxRef={ledSelFxRef}/>}
+        {!playMode && <FixturePadBar fixtures={fixtures} cues={cues} setCues={setCues} playhead={displayPlayhead} playheadRef={playheadRef} beatEventRef={beatEventRef} audioMode={audioMode} onParamSelect={handleParamSelect} midiConnected={midiConnected} setMidiConnected={setMidiConnected} midiLearn={midiLearn} setMidiLearn={setMidiLearn} midiMap={midiMap} setMidiMap={setMidiMap} toggleMidi={toggleMidi} midiAccessRef={midiAccessRef} midiValueMode={midiValueMode} midiModValue={midiModValue} midiLiveMode={midiLiveMode} midiSettingsOpen={midiSettingsOpen} setMidiSettingsOpen={setMidiSettingsOpen} midiAutoConnect={midiAutoConnect} mutedLanes={mutedLanes} soloLanes={soloLanes} paramFloors={paramFloors} paramOverrides={paramOverrides} liveValues={liveValues} midiActions={stableMidiActions} padMap={padMap} setPadMap={setPadMap} padMapMode={padMapMode} setPadMapMode={setPadMapMode} padPage={padPage} setPadPage={setPadPage} ledSelFxRef={ledSelFxRef} midiDetectedDevice={midiDetectedDevice}/>}
         </div>
 
         <div style={{width:(rightPanelWide||alwaysWideTabs)?440:220,background:"#141820",display:playMode?"none":"flex",flexDirection:"column",flexShrink:0,overflow:"hidden",transition:"width 0.2s ease",margin:"6px 6px 6px 0",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
@@ -5970,7 +6054,7 @@ function LightingTimeline() {
             ):rightTab==="fx"?(
               <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
                 <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
-                  <EffectGenerator fixtures={fixtures} cues={cues} setCues={setCues} loopStart={loopStart} loopEnd={loopEnd} fxStart={fxStart} fxEnd={fxEnd} setFxEnd={setFxEnd} setExpandedFixtures={setExpandedFixtures} setExpandedGroups={setExpandedGroups} onSelectionChange={setFxSelectedFixtures} onPreviewChange={setFxGhostCues} autoDissolve={autoDissolve}/>
+                  <EffectGenerator fixtures={fixtures} cues={cues} setCues={setCues} loopStart={loopStart} loopEnd={loopEnd} fxStart={fxStart} fxEnd={fxEnd} setFxEnd={setFxEnd} setExpandedFixtures={setExpandedFixtures} setExpandedGroups={setExpandedGroups} onSelectionChange={setFxSelectedFixtures} onPreviewChange={setFxGhostCues} autoDissolve={autoDissolve} midiDetectedDevice={midiDetectedDevice}/>
                 </div>
               </div>
             ):rightTab==="seq"?(
@@ -9742,7 +9826,7 @@ function LightingTimeline() {
             </div>
             <div style={{fontSize:8,color:"#aa44ff66",letterSpacing:2,marginTop:8}}>MAPPING</div>
             <div style={{display:"flex",gap:4}}>
-              <button onClick={()=>{const whiteKeys=[];for(let n=36;n<=96;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}const newMap={};fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});setMidiMap(newMap);}} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #aa44ff44",color:"#aa44ff",borderRadius:8,cursor:"pointer"}}>AUTO MAP</button>
+              <button onClick={()=>{const ns=midiDetectedDevice?.keys?.noteStart??36;const ne=midiDetectedDevice?.keys?.noteEnd??96;const whiteKeys=[];for(let n=ns;n<=ne;n++){if([0,2,4,5,7,9,11].includes(n%12))whiteKeys.push(n);}const newMap={};fixtures.forEach((fx,i)=>{if(i<whiteKeys.length)newMap[whiteKeys[i]]=fx.id;});setMidiMap(newMap);}} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #aa44ff44",color:"#aa44ff",borderRadius:8,cursor:"pointer"}}>AUTO MAP</button>
               <button onClick={()=>setMidiMap({})} style={{flex:1,padding:"8px 0",fontSize:10,fontWeight:"bold",letterSpacing:1,background:"#0c0e12",border:"2px solid #ff444444",color:"#ff4444",borderRadius:8,cursor:"pointer"}}>CLEAR MAP</button>
             </div>
             <button onClick={()=>setMidiAutoMap(v=>!v)} style={{padding:"6px 0",fontSize:9,fontWeight:"bold",background:midiAutoMap?"#1a2a10":"#0c0e12",border:"2px solid "+(midiAutoMap?"#44ff44":"#252930"),color:midiAutoMap?"#44ff44":"#555",borderRadius:8,cursor:"pointer",letterSpacing:1}}>{midiAutoMap?"AUTO REMAP ON FIXTURE CHANGE: ON":"AUTO REMAP ON FIXTURE CHANGE: OFF"}</button>
